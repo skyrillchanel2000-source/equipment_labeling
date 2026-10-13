@@ -49,6 +49,8 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .pc0{background:#dbeafe}.pc1{background:#dcfce7}.pc2{background:#fef9c3}.pc3{background:#ffe4e6}
 .pc4{background:#ede9fe}.pc5{background:#cffafe}.pc6{background:#ffedd5}.pc7{background:#f3f4f6}
 #viewBody tr.hl td{background:#fef3c7}
+.view-marking{cursor:pointer}
+#viewCode{cursor:pointer}
 .modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;justify-content:center;padding:36px 14px;z-index:20;overflow:auto}
 .hidden{display:none!important}
 .modal-box{background:#fff;border-radius:14px;max-width:860px;width:100%;height:max-content}
@@ -58,7 +60,7 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--line)}
 fieldset{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;padding:12px}
 legend{font-size:13px;color:var(--mut);padding:0 6px}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -122,7 +124,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <div id="modeBanner"></div>
 
 <nav class="tabs">
-  <button class="tab active" data-tab="main">Маркировки</button>
+  <button class="tab active" data-tab="main">Маркировки <span class="cnt" id="mainCnt">0</span></button>
   <button class="tab" data-tab="trash">Удалённые <span class="cnt" id="trashCnt">0</span></button>
 </nav>
 
@@ -163,15 +165,16 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
       <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button>
     </div>
     <div class="modal-body">
-      <div class="grid3">
+      <div class="grid4">
         <label>Категория<input id="eCategory" list="dlCategories" placeholder="например: Датчики"></label>
-        <label>Производитель<input id="eManufacturer" list="dlManufacturers" placeholder="например: Siemens"></label>
-        <label>Модель оборудования<input id="eModel" placeholder="например: QBM6520-30"></label>
+        <label>Производитель<input id="eManufacturer" list="dlManufacturers" placeholder="например: Термекс"></label>
+        <label>Модель оборудования<input id="eModel" placeholder="например: ТСПТ-104"></label>
+        <label>Код 1С<input id="eCode" placeholder="Введите код 1С"></label>
       </div>
       <fieldset>
         <legend>Части маркировки</legend>
         <div class="parts-toolbar">
-          <span class="hint">Подсказки частей зависят от категории и производителя. У каждой части — свой разделитель.</span>
+          <span class="hint">Подсказки зависят от категории и производителя. У каждой части — свой разделитель.</span>
           <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
         </div>
         <div id="partsRows"></div>
@@ -258,7 +261,7 @@ window.addEventListener('unhandledrejection', function(e){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycby0zk_9HBXd0GWnyL8uMHGbTGlVV23c3uH2olIoj1qTFk5YWakgpquRX4QERsE_kC5b/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxdigLyqyiuk6y73LKhKiRnlxn9o3E-I3WtFIqbbqqVr5ysH_3yHvkJajfUdTpHeOch/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -270,7 +273,6 @@ const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
 const nowStr = () => new Date().toLocaleString('ru-RU');
 const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
 
-// Поиск: без % — точь-в-точь (регистр не важен); с % — «%» и пробел = любые символы
 function searchMatch(hay, q){
   if (q.includes('%')){
     const toks = q.toLowerCase().split(/[%\s]+/).filter(Boolean).map(norm);
@@ -278,6 +280,17 @@ function searchMatch(hay, q){
     return new RegExp(toks.join('.*')).test(norm(hay));
   }
   return hay.toLowerCase().includes(q.toLowerCase());
+}
+
+// ================= Копирование в буфер =================
+function copyText(t){
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+  return new Promise((res, rej) => {
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); res(); } catch(e){ rej(e); } finally { ta.remove(); }
+  });
 }
 
 // ================= Плавающая подсказка =================
@@ -348,6 +361,21 @@ let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
 
+// ============ Полная маркировка из частей (единая логика) ============
+// разделитель i-й части стоит ПОСЛЕ неё (между i и i+1)
+function buildMarking(card){
+  const parts=(card.parts||[]).filter(p=>(p.part||'').trim());
+  const fb = card.sep ?? '-';
+  let m='';
+  parts.forEach((p,i)=>{
+    m += p.part.trim();
+    if (i < parts.length-1){
+      m += (p.sepAfter !== undefined && p.sepAfter !== null) ? p.sepAfter : fb;
+    }
+  });
+  return m;
+}
+
 // ================= Миграция старых схем =================
 function migrateScheme(s){
   if (!s || typeof s!=='object') return null;
@@ -367,10 +395,14 @@ function schemeJumperCount(s){ return (s && s.jumpers) ? s.jumpers.length : 0; }
 
 // ================= Загрузка =================
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
-function updateTrashCnt(){ const el=$('#trashCnt'); if(el) el.textContent=deletedCards.length; }
+function updateCounts(){
+  const m=$('#mainCnt'), t=$('#trashCnt');
+  if (m) m.textContent=cards.length;
+  if (t) t.textContent=deletedCards.length;
+}
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v8 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v9 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
   let raw=null, rawDel=null, msg='', cls='';
@@ -400,7 +432,7 @@ async function loadCards(){
     }
   }
   setBanner(msg, cls);
-  updateTrashCnt();
+  updateCounts();
   fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
 function postToSheet(payload){
@@ -465,7 +497,7 @@ function renderCards(){
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
     if (q){
-      const hay=[c.marking,c.model,c.category,c.manufacturer,c.comment,
+      const hay=[buildMarking(c),c.model,c.category,c.manufacturer,c.comment,
         ...(c.parts||[]).flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
       if (!searchMatch(hay, q)) return false;
     }
@@ -509,7 +541,7 @@ function cardAction(e){
     deletedCards.unshift(c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateTrashCnt(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
     postToSheet({action:'delete', id}).then(()=>setTimeout(loadCards, 800));
   }
   else if(act==='restore'){
@@ -517,19 +549,25 @@ function cardAction(e){
     cards.unshift(c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateTrashCnt(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
     postToSheet({action:'restore', id}).then(()=>setTimeout(loadCards, 800));
   }
   else if(act==='purge'){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
     deletedCards=deletedCards.filter(x=>x.id!==id);
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateTrashCnt(); renderCards(); updateFooter();
+    updateCounts(); renderCards(); updateFooter();
     postToSheet({action:'purge', id}).then(()=>setTimeout(loadCards, 800));
   }
 }
 
 // ================= Просмотр =================
+const COPY_HINT='Нажмите на маркировку или код 1С, чтобы скопировать';
+function flashHint(text){
+  const h=$('#copyHint'); if(!h) return;
+  h.textContent=text;
+  setTimeout(()=>{ h.textContent=COPY_HINT; }, 1500);
+}
 function viewHL(i,onOff){
   document.querySelectorAll('#viewBody [data-pidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',onOff));
 }
@@ -539,8 +577,9 @@ function openView(id){
   const inTrash = !cards.find(x=>x.id===id);
   const jc=schemeJumperCount(c.scheme);
   $('#viewBody').innerHTML=`
-    <div class="view-meta">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
-    <div class="view-marking">${markingHTML(c)}</div>
+    <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
+    <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
+    <div class="hint" id="copyHint">${COPY_HINT}</div>
     <table class="parts-table"><thead><tr><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
       <tbody>${(c.parts||[]).map((p,i)=>`<tr data-pidx="${i}"><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
     ${c.comment?`<div class="view-comment"><b>Комментарий:</b> ${esc(c.comment)}</div>`:''}
@@ -558,8 +597,13 @@ function openView(id){
     ${c.basedOn?`<div class="based">Создано на основе: ${esc(c.basedOn)}</div>`:''}`;
   $('#viewEdit').style.display  = inTrash ? 'none' : '';
   $('#viewClone').style.display = inTrash ? 'none' : '';
+  const full=buildMarking(c);
+  const vm=$('#viewMarking');
+  if (vm) vm.onclick=()=>copyText(full).then(()=>flashHint('Скопировано ✓: '+full)).catch(()=>alert(full));
+  const vc=$('#viewCode');
+  if (vc) vc.onclick=()=>copyText(c.id).then(()=>flashHint('Код 1С скопирован ✓: '+c.id)).catch(()=>alert(c.id));
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
-  const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>navigator.clipboard.writeText($('#viewSchemeText').textContent)
+  const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>copyText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
   $$('#viewBody [data-pidx]').forEach(el=>{
     el.addEventListener('mouseenter', ()=>viewHL(el.dataset.pidx,true));
@@ -569,16 +613,19 @@ function openView(id){
 }
 
 // ================= Создание / редактирование =================
-function updatePartsDatalist(){
+// Подсказки: производитель зависит от категории; части — от категории + производителя
+function updateEditDatalists(){
   const cat=$('#eCategory').value.trim().toLowerCase();
   const man=$('#eManufacturer').value.trim().toLowerCase();
-  const pool=[];
+  const mPool=[], pPool=[];
   cards.forEach(c=>{
     if (cat && (c.category||'').toLowerCase()!==cat) return;
+    if (c.manufacturer && !mPool.includes(c.manufacturer)) mPool.push(c.manufacturer);
     if (man && (c.manufacturer||'').toLowerCase()!==man) return;
-    (c.parts||[]).forEach(p=>{ if (p.part && !pool.includes(p.part)) pool.push(p.part); });
+    (c.parts||[]).forEach(p=>{ if (p.part && !pPool.includes(p.part)) pPool.push(p.part); });
   });
-  $('#dlParts').innerHTML=pool.sort().map(v=>`<option value="${esc(v)}">`).join('');
+  $('#dlManufacturers').innerHTML=mPool.sort().map(v=>`<option value="${esc(v)}">`).join('');
+  $('#dlParts').innerHTML=pPool.sort().map(v=>`<option value="${esc(v)}">`).join('');
 }
 function renderPartRows(parts, defSep){
   $('#partsRows').innerHTML=parts.map(p=>`
@@ -659,7 +706,9 @@ function openEdit(src, mode){
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
-  updatePartsDatalist();
+  // код 1С: при редактировании — существующий; при создании/клонировании — пусто (будет свой)
+  $('#eCode').value = (mode==='edit' && editId) ? editId : '';
+  updateEditDatalists();
   renderPartRows(base.parts, base.sep); updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
 }
@@ -673,8 +722,10 @@ function collectCard(){
   }));
   const parts=rows.filter(p=>p.part);
   if (!parts.length){ alert('Добавьте хотя бы одну часть маркировки'); return null; }
+  const codeVal=$('#eCode').value.trim();
   const card={
-    id:editId||uid(),
+    // код 1С: вписанный; при редактировании пусто — сохраняем прежний код
+    id: codeVal || editId || uid(),
     date:editId?(cards.find(c=>c.id===editId)?.date||nowStr()):nowStr(),
     category:$('#eCategory').value.trim(), manufacturer:$('#eManufacturer').value.trim(),
     model:$('#eModel').value.trim(), sep:(parts[0]&&parts[0].sepAfter)||'-', parts,
@@ -682,9 +733,7 @@ function collectCard(){
     scheme:draftScheme, schemeType:draftScheme?draftScheme.type:0,
     schemeText:draftSchemeText, basedOn:editBaseOn
   };
-  let marking='';
-  parts.forEach(p=>{ marking += (marking ? p.sepAfter : '') + p.part; });
-  card.marking=marking;
+  card.marking=buildMarking(card);
   return card;
 }
 async function saveCard(){
@@ -1016,8 +1065,6 @@ function fillDatalists(){
   }));
   const opts=arr=>arr.map(v=>`<option value="${esc(v)}">`).join('');
   $('#dlCategories').innerHTML=opts([...new Set(cards.map(c=>c.category).filter(Boolean))].sort());
-  $('#dlManufacturers').innerHTML=opts([...new Set(cards.map(c=>c.manufacturer).filter(Boolean))].sort());
-  $('#dlParts').innerHTML=opts([...partsMap.keys()].sort());
   $('#dlCables').innerHTML=opts([...new Set(
     cards.flatMap(c=>(c.scheme&&c.scheme.cables)||[]).map(cb=>cb.mark).filter(Boolean))].sort());
   $('#dlWires').innerHTML=opts(WIRE_COLORS.map(([v])=>v));
@@ -1026,9 +1073,9 @@ function fillDatalists(){
 // ================= Экспорт CSV =================
 function exportCSV(){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const lines=[['ID','Дата','Категория','Производитель','Модель','Маркировка','Части и описания','Схема','Комментарий'].join(';')];
+  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Маркировка','Части и описания','Схема','Комментарий'].join(';')];
   cards.forEach(c=>lines.push([
-    c.id, c.date, c.category, c.manufacturer, c.model, c.marking,
+    c.id, c.date, c.category, c.manufacturer, c.model, buildMarking(c),
     (c.parts||[]).map(p=>[p.part,p.desc||'',charUnit(p)].join(' :: ')).join(' | '),
     c.schemeText||'', c.comment
   ].map(q).join(';')));
@@ -1057,14 +1104,8 @@ function init(){
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
   on('#cards','click',cardAction);
 
-  $$('.tab').forEach(t=>t.addEventListener('click',()=>{
-    currentTab=t.dataset.tab;
-    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
-    renderCards();
-  }));
-
-  on('#eCategory','input',updatePartsDatalist);
-  on('#eManufacturer','input',updatePartsDatalist);
+  on('#eCategory','input',updateEditDatalists);
+  on('#eManufacturer','input',updateEditDatalists);
 
   on('#partsRows','input',refreshPartStyles);
   on('#partsRows','change',partsChange);
@@ -1088,6 +1129,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v8</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v9</footer>
 </body>
 </html>
