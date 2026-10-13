@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Маркировки оборудования</title>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<header>
+  <h1>Маркировки оборудования</h1>
+  <div class="toolbar">
+    <button class="icon-btn" id="btnRefresh" data-icon="refresh" data-tip="Обновить данные"></button>
+    <button class="icon-btn" id="btnExport" data-icon="download" data-tip="Скачать CSV для Excel"></button>
+    <button class="icon-btn" id="btnSettings" data-icon="gear" data-tip="Подключение к Google Таблице"></button>
+    <button class="icon-btn primary" id="btnAdd" data-icon="plus" data-tip="Добавить маркировку"></button>
+  </div>
+</header>
+
+<div id="modeBanner"></div>
+
+<section class="filters">
+  <input id="fSearch" type="text" placeholder="Поиск: маркировка, модель, описание…">
+  <select id="fCategory"><option value="">Все категории</option></select>
+  <select id="fManufacturer"><option value="">Все производители</option></select>
+</section>
+
+<main>
+  <div id="cards" class="cards"></div>
+  <div id="empty" class="empty hidden">
+    <p>Пока нет ни одной маркировки.</p>
+    <button class="btn primary" id="btnAddEmpty">Добавить первую маркировку</button>
+  </div>
+</main>
+
+<!-- Просмотр карточки -->
+<div class="modal hidden" id="viewModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Карточка маркировки</h3>
+      <div class="toolbar">
+        <button class="icon-btn" id="viewEdit" data-icon="edit" data-tip="Редактировать"></button>
+        <button class="icon-btn" id="viewClone" data-icon="copy" data-tip="Создать на основе"></button>
+        <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button>
+      </div>
+    </div>
+    <div class="modal-body" id="viewBody"></div>
+  </div>
+</div>
+
+<!-- Создание / редактирование -->
+<div class="modal hidden" id="editModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="editTitle">Новая маркировка</h3>
+      <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button>
+    </div>
+    <div class="modal-body">
+      <div class="grid3">
+        <label>Категория<input id="eCategory" list="dlCategories" placeholder="например: Датчики"></label>
+        <label>Производитель<input id="eManufacturer" list="dlManufacturers" placeholder="например: Siemens"></label>
+        <label>Модель оборудования<input id="eModel" placeholder="например: QBM6520-30"></label>
+      </div>
+      <fieldset>
+        <legend>Части маркировки</legend>
+        <div class="parts-toolbar">
+          <span>Разделитель:</span>
+          <select id="eSep">
+            <option value="-">дефис «-»</option>
+            <option value="/">слэш «/»</option>
+            <option value="_">подчёркивание «_»</option>
+            <option value="">без разделителя</option>
+          </select>
+          <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
+        </div>
+        <div id="partsRows"></div>
+        <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
+      </fieldset>
+      <div class="scheme-row">
+        <button class="icon-btn" id="btnOpenScheme" data-icon="cpu" data-tip="Создать / изменить схему подключения"></button>
+        <span>Схема подключения: <b id="schemeStatus">не задана</b></span>
+      </div>
+      <div id="editSchemeBox" class="hidden">
+        <h4>Схема (вид для Excel)</h4>
+        <pre id="editSchemeText"></pre>
+      </div>
+      <label>Комментарий<textarea id="eComment" rows="2" placeholder="Особенности применения, примечания…"></textarea></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btnSaveCard">Сохранить</button>
+      <button class="btn" data-close>Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Редактор схемы -->
+<div class="modal hidden" id="schemeModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Схема подключения</h3>
+      <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть без сохранения"></button>
+    </div>
+    <div class="modal-body">
+      <div class="scheme-types">
+        <label><input type="radio" name="sType" value="1"> В оборудовании только клеммы</label>
+        <label><input type="radio" name="sType" value="2"> Клеммы + комплектный кабель</label>
+        <label><input type="radio" name="sType" value="3"> Кабель из оборудования в комплектную коробку с клеммами</label>
+      </div>
+      <div id="schemeExtra"></div>
+      <table class="scheme-table"><thead id="schemeHead"></thead><tbody id="schemeRows"></tbody></table>
+      <button class="icon-btn" id="btnAddTerm" data-icon="plus" data-tip="Добавить клемму"></button>
+      <h4>Предпросмотр (вставляется в Excel)</h4>
+      <pre id="schemePreview"></pre>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btnApplyScheme">Применить схему</button>
+      <button class="btn" data-close>Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Настройки -->
+<div class="modal hidden" id="settingsModal">
+  <div class="modal-box small">
+    <div class="modal-head"><h3>Настройки</h3><button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button></div>
+    <div class="modal-body">
+      <label>URL веб-приложения Apps Script (оканчивается на /exec)
+        <input id="cfgUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec">
+      </label>
+      <p class="hint">Если поле пустое — демо-режим (данные только в этом браузере).</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnTestUrl">Проверить связь</button>
+      <button class="btn primary" id="btnSaveCfg">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="dlCategories"></datalist>
+<datalist id="dlManufacturers"></datalist>
+<datalist id="dlParts"></datalist>
+<datalist id="dlCables"></datalist>
+<datalist id="dlWires"></datalist>
+
+<script src="app.js"></script>
+</body>
+</html>
