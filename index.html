@@ -19,6 +19,9 @@ header h1{font-size:20px;margin:0}
 a.icon-btn{text-decoration:none}
 .icon-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 .icon-btn.primary:hover{background:#1e4fd6;color:#fff}
+#busyInd{position:fixed;top:12px;right:12px;z-index:90;background:#111827;color:#fff;padding:8px 14px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+#busyInd .spin{width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
 #tooltip{position:fixed;z-index:100;background:#111827;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;line-height:1.4;max-width:320px;pointer-events:none;display:none;white-space:normal;word-break:break-word}
 #tooltip.show{display:block}
 #modeBanner{padding:10px 22px;font-size:14px}
@@ -122,6 +125,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
   </div>
 </header>
 
+<div id="busyInd" class="hidden"><span class="spin"></span>Синхронизация с Google Таблицей…</div>
 <div id="modeBanner"></div>
 
 <nav class="tabs">
@@ -243,7 +247,6 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <datalist id="dlTerms"></datalist>
 
 <script>
-/* Дозорный: покажет ошибку, даже если основной скрипт упадёт */
 window.addEventListener('error', function(e){
   var b = document.getElementById('modeBanner');
   if (b){
@@ -271,7 +274,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbyecSFMnsfWzUr1hfg9N_h5Xho1BUsCY3lVDXAFpRDwA644Im1cMYf5fcTXk9VQVun0/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwcoPnt2J-vsbMx0gKKxfu4l40xzIxcHF8vuOb86ToM2ZWBeGaCuhyth9IXACgj8hBx/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -283,7 +286,6 @@ const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
 const nowStr = () => new Date().toLocaleString('ru-RU');
 const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
 
-// Поиск: без % — точь-в-точь (регистр не важен); с % — «%» и пробел = любые символы
 function searchMatch(hay, q){
   if (q.includes('%')){
     const toks = q.toLowerCase().split(/[%\s]+/).filter(Boolean).map(norm);
@@ -293,7 +295,6 @@ function searchMatch(hay, q){
   return hay.toLowerCase().includes(q.toLowerCase());
 }
 
-// ================= Копирование в буфер =================
 function copyText(t){
   if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
   return new Promise((res, rej) => {
@@ -302,6 +303,14 @@ function copyText(t){
     document.body.appendChild(ta); ta.select();
     try { document.execCommand('copy'); res(); } catch(e){ rej(e); } finally { ta.remove(); }
   });
+}
+
+// ================= Индикатор синхронизации =================
+let busyCnt = 0;
+function busy(onState){
+  busyCnt = Math.max(0, busyCnt + (onState ? 1 : -1));
+  const el = document.getElementById('busyInd');
+  if (el) el.classList.toggle('hidden', busyCnt === 0);
 }
 
 // ================= Плавающая подсказка =================
@@ -372,8 +381,13 @@ let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
 
-// ============ Полная маркировка из частей (единая логика) ============
-// разделитель i-й части стоит ПОСЛЕ неё (между i и i+1)
+// id всегда строкой (Google может вернуть число — из-за этого «умирали» иконки)
+function fixCard(c){
+  const x = Object.assign({}, c, { id: String(c.id) });
+  if (x.scheme) x.scheme = migrateScheme(x.scheme);
+  return x;
+}
+
 function buildMarking(card){
   const parts=(card.parts||[]).filter(p=>(p.part||'').trim());
   const fb = card.sep ?? '-';
@@ -387,7 +401,6 @@ function buildMarking(card){
   return m;
 }
 
-// ================= Миграция старых схем =================
 function migrateScheme(s){
   if (!s || typeof s!=='object') return null;
   if (s.cables || s.terminals) return s;
@@ -404,7 +417,8 @@ function schemeConnCount(s){
 }
 function schemeJumperCount(s){ return (s && s.jumpers) ? s.jumpers.length : 0; }
 
-// ================= Загрузка =================
+// ================= Загрузка (без параллельных дублей) =================
+let loading=false, needReload=false;
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
 function updateCounts(){
   const m=$('#mainCnt'), t=$('#trashCnt');
@@ -413,38 +427,45 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v12 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v13 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
-  let raw=null, rawDel=null, msg='', cls='';
-  const local=JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
+  if (loading){ needReload=true; return; }
+  loading=true; busy(true);
   try{
-    const sep = API_URL.includes('?') ? '&' : '?';
-    raw = await (await fetch(API_URL+sep+'action=list')).json();
-    rawDel = await (await fetch(API_URL+sep+'action=listDeleted')).json().catch(()=>[]);
-    if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
-    if (!Array.isArray(rawDel)) rawDel=[];
-    localStorage.setItem(LS_CARDS, JSON.stringify(raw));
-  }catch(e){
-    msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные.';
-    cls='warn';
-    rawDel = JSON.parse(localStorage.getItem(LS_TRASH)||'[]');
-  }
-  cards=(raw||local).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
-  deletedCards=(rawDel||[]).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
-  localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-  if (raw){
-    const ids=new Set(cards.map(c=>c.id));
-    const stuck=local.filter(c=>!ids.has(c.id));
-    if (stuck.length){
-      cards=stuck.map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c).concat(cards);
-      msg='Внимание: '+stuck.length+' карточк(а/и) отсутствуют в Google Таблице — сохранение не прошло. Откройте карточку и сохраните ещё раз.';
+    let raw=null, rawDel=null, msg='', cls='';
+    const local=JSON.parse(localStorage.getItem(LS_CARDS)||'[]').map(fixCard);
+    try{
+      const sep = API_URL.includes('?') ? '&' : '?';
+      raw = await (await fetch(API_URL+sep+'action=list')).json();
+      rawDel = await (await fetch(API_URL+sep+'action=listDeleted')).json().catch(()=>[]);
+      if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
+      if (!Array.isArray(rawDel)) rawDel=[];
+      localStorage.setItem(LS_CARDS, JSON.stringify(raw));
+    }catch(e){
+      msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные.';
       cls='warn';
+      rawDel = JSON.parse(localStorage.getItem(LS_TRASH)||'[]');
     }
+    cards=(raw||local).map(fixCard);
+    deletedCards=(rawDel||[]).map(fixCard);
+    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+    if (raw){
+      const ids=new Set(cards.map(c=>c.id));
+      const stuck=local.filter(c=>!ids.has(c.id));
+      if (stuck.length){
+        cards=stuck.concat(cards);
+        msg='Внимание: '+stuck.length+' карточк(а/и) ещё не появились в Google Таблице — операция выполняется или не прошла. Подождите и нажмите «Обновить».';
+        cls='warn';
+      }
+    }
+    setBanner(msg, cls);
+    updateCounts();
+    fillDatalists(); renderFilters(); renderCards(); updateFooter();
+  } finally {
+    loading=false; busy(false);
+    if (needReload){ needReload=false; setTimeout(loadCards, 300); }
   }
-  setBanner(msg, cls);
-  updateCounts();
-  fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
 function postToSheet(payload){
   return fetch(API_URL, {
@@ -453,16 +474,22 @@ function postToSheet(payload){
     body: JSON.stringify(payload)
   });
 }
+// Очередь операций: сохранение гарантированно раньше удаления, порядок как на экране
+let opQueue = Promise.resolve();
+function queueOp(payload){
+  busy(true);
+  opQueue = opQueue
+    .then(() => postToSheet(payload))
+    .catch(() => {})
+    .then(() => { busy(false); });
+  return opQueue;
+}
 async function persistCard(card){
-  const i=cards.findIndex(c=>c.id===card.id);
+  const i=cards.findIndex(c=>String(c.id)===String(card.id));
   if(i>=0) cards[i]=card; else cards.unshift(card);
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-  try{
-    await postToSheet({action:'save', card});
-    setTimeout(loadCards, 800);
-  }catch(e){
-    alert('Не удалось отправить данные в Google Таблицу (нет сети?). Карточка сохранена локально.');
-  }
+  fillDatalists(); renderFilters(); renderCards(); updateFooter();
+  queueOp({action:'save', card}).then(()=>setTimeout(loadCards, 400));
 }
 
 // ================= Список карточек =================
@@ -493,9 +520,9 @@ function trashCardHTML(c){
       ${c.deletedAt?`<div class="del-info">Удалено: ${esc(c.deletedAt)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''}</div>` : ''}
       <div class="card-actions">
-        <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
-        <button class="icon-btn" data-tip="Восстановить на лист «Маркировки»" data-act="restore" data-id="${c.id}">${icon('undo')}</button>
-        <button class="icon-btn danger" data-tip="Удалить навсегда (по ключу)" data-act="purge" data-id="${c.id}">${icon('trash')}</button>
+        <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${esc(c.id)}">${icon('eye')}</button>
+        <button class="icon-btn" data-tip="Восстановить на лист «Маркировки»" data-act="restore" data-id="${esc(c.id)}">${icon('undo')}</button>
+        <button class="icon-btn danger" data-tip="Удалить навсегда (по ключу)" data-act="purge" data-id="${esc(c.id)}">${icon('trash')}</button>
       </div>
     </div>`;
 }
@@ -526,17 +553,18 @@ function renderCards(){
       <div class="card-marking">${markingHTML(c)}</div>
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
       <div class="card-actions">
-        <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
-        <button class="icon-btn" data-tip="Создать на основе" data-act="clone" data-id="${c.id}">${icon('copy')}</button>
-        <button class="icon-btn" data-tip="Редактировать" data-act="edit" data-id="${c.id}">${icon('edit')}</button>
-        <button class="icon-btn danger" data-tip="Удалить (в корзину)" data-act="del" data-id="${c.id}">${icon('trash')}</button>
+        <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${esc(c.id)}">${icon('eye')}</button>
+        <button class="icon-btn" data-tip="Создать на основе" data-act="clone" data-id="${esc(c.id)}">${icon('copy')}</button>
+        <button class="icon-btn" data-tip="Редактировать" data-act="edit" data-id="${esc(c.id)}">${icon('edit')}</button>
+        <button class="icon-btn danger" data-tip="Удалить (в корзину)" data-act="del" data-id="${esc(c.id)}">${icon('trash')}</button>
       </div>
     </div>`;}).join('');
 }
 
 // ================= Действия на карточках =================
 function findCard(id){
-  return cards.find(x=>x.id===id) || deletedCards.find(x=>x.id===id);
+  return cards.find(x=>String(x.id)===String(id)) ||
+         deletedCards.find(x=>String(x.id)===String(id));
 }
 function cardAction(e){
   const b=e.target.closest('button[data-act]'); if(!b) return;
@@ -548,33 +576,30 @@ function cardAction(e){
   else if(act==='edit'){ openEdit(c,'edit'); }
   else if(act==='del'){
     if(!confirm('Удалить маркировку '+c.id+'? Она переместится на лист «Удалённые» в Google Таблице.')) return;
-    cards=cards.filter(x=>x.id!==id);
+    cards=cards.filter(x=>String(x.id)!==String(id));
     deletedCards.unshift(c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
     updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
-    postToSheet({action:'delete', id}).then(()=>setTimeout(loadCards, 800));
+    queueOp({action:'delete', id}).then(()=>setTimeout(loadCards, 400));
   }
   else if(act==='restore'){
-    deletedCards=deletedCards.filter(x=>x.id!==id);
+    deletedCards=deletedCards.filter(x=>String(x.id)!==String(id));
     cards.unshift(c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
     updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
-    postToSheet({action:'restore', id}).then(()=>setTimeout(loadCards, 800));
+    queueOp({action:'restore', id}).then(()=>setTimeout(loadCards, 400));
   }
   else if(act==='purge'){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
     const key = prompt('Полное удаление защищено ключом.\nВведите ключ:');
     if (key === null || !key.trim()) return;
-    // ключ проверяет сервер (Apps Script); локально ничего не удаляем —
-    // после перечитывания таблицы станет ясно, прошла ли проверка
-    postToSheet({action:'purge', id, key:key.trim()})
-      .then(()=>setTimeout(async ()=>{
-        await loadCards();
-        if (deletedCards.find(x=>x.id===id))
-          alert('Карточка НЕ удалена — скорее всего, ключ неверный.');
-      }, 1500));
+    queueOp({action:'purge', id, key:key.trim()}).then(()=>setTimeout(async ()=>{
+      await loadCards();
+      if (deletedCards.find(x=>String(x.id)===String(id)))
+        alert('Карточка НЕ удалена — скорее всего, ключ неверный.');
+    }, 400));
   }
 }
 
@@ -591,7 +616,7 @@ function viewHL(i,onOff){
 function openView(id){
   const c=findCard(id); if(!c) return;
   currentViewId=id;
-  const inTrash = !cards.find(x=>x.id===id);
+  const inTrash = !cards.find(x=>String(x.id)===String(id));
   const jc=schemeJumperCount(c.scheme);
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
@@ -630,7 +655,6 @@ function openView(id){
 }
 
 // ================= Создание / редактирование =================
-// Подсказки: производитель зависит от категории; части — от категории + производителя
 function updateEditDatalists(){
   const cat=$('#eCategory').value.trim().toLowerCase();
   const man=$('#eManufacturer').value.trim().toLowerCase();
@@ -723,7 +747,6 @@ function openEdit(src, mode){
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
-  // код 1С: при редактировании — существующий; при создании/клонировании — пусто (будет свой)
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
   updateEditDatalists();
   renderPartRows(base.parts, base.sep); updateSchemeStatus();
@@ -741,9 +764,8 @@ function collectCard(){
   if (!parts.length){ alert('Добавьте хотя бы одну часть маркировки'); return null; }
   const codeVal=$('#eCode').value.trim();
   const card={
-    // код 1С: вписанный; при редактировании пусто — сохраняем прежний код
     id: codeVal || editId || uid(),
-    date:editId?(cards.find(c=>c.id===editId)?.date||nowStr()):nowStr(),
+    date:editId?(cards.find(c=>String(c.id)===String(editId))?.date||nowStr()):nowStr(),
     category:$('#eCategory').value.trim(), manufacturer:$('#eManufacturer').value.trim(),
     model:$('#eModel').value.trim(), sep:(parts[0]&&parts[0].sepAfter)||'-', parts,
     comment:$('#eComment').value.trim(),
@@ -757,7 +779,6 @@ async function saveCard(){
   const card=collectCard(); if(!card) return;
   await persistCard(card);
   $('#editModal').classList.add('hidden');
-  fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
 
 // ================= Редактор схемы =================
@@ -1117,8 +1138,8 @@ function init(){
   on('#sBoxMark','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.mark=e.target.value; schemePreviewFill(); });
   on('#sBoxDesc','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.desc=e.target.value; schemePreviewFill(); });
   on('#btnApplyScheme','click',applyScheme);
-  on('#viewEdit','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); });
-  on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
+  on('#viewEdit','click',()=>{ const c=findCard(currentViewId); $('#viewModal').classList.add('hidden'); if(c) openEdit(c,'edit'); });
+  on('#viewClone','click',()=>{ const c=findCard(currentViewId); $('#viewModal').classList.add('hidden'); if(c) openEdit(c,'clone'); });
   on('#cards','click',cardAction);
 
   $$('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -1153,6 +1174,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v12</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v13</footer>
 </body>
 </html>
