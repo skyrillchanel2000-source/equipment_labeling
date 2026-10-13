@@ -15,6 +15,7 @@ header h1{font-size:20px;margin:0}
 .icon-btn:hover{border-color:var(--acc);color:var(--acc);background:#eef4ff}
 .icon-btn.danger:hover{border-color:var(--danger);color:var(--danger);background:#fff1f1}
 .icon-btn svg{width:18px;height:18px}
+a.icon-btn{text-decoration:none}
 .icon-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 .icon-btn.primary:hover{background:#1e4fd6;color:#fff}
 #tooltip{position:fixed;z-index:100;background:#111827;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;line-height:1.4;max-width:320px;pointer-events:none;display:none;white-space:normal;word-break:break-word}
@@ -23,6 +24,10 @@ header h1{font-size:20px;margin:0}
 #modeBanner.info{background:#e0edff;color:#1d4ed8}
 #modeBanner.warn{background:#fdecea;color:#b3261e}
 #modeBanner:empty{display:none}
+.tabs{display:flex;gap:6px;padding:14px 22px 0}
+.tab{padding:8px 16px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:#e8ecf3;color:var(--mut);cursor:pointer;font:inherit;font-size:14px}
+.tab.active{background:#fff;color:var(--ink);font-weight:600}
+.tab .cnt{background:var(--acc);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px}
 .filters{display:flex;gap:10px;padding:14px 22px;flex-wrap:wrap}
 .filters input{flex:1;min-width:220px}
 input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
@@ -30,6 +35,9 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;padding:0 22px 40px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .card:hover{box-shadow:0 4px 16px rgba(20,40,80,.08)}
+.card.deleted{background:#f6f7fa}
+.card.deleted .card-marking{opacity:.75}
+.del-info{font-size:12px;color:var(--danger)}
 .card-cat{font-size:12px;color:var(--mut)}
 .card-marking{font-size:19px;font-weight:600;line-height:2;word-break:break-word}
 .card-scheme{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
@@ -113,6 +121,11 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 
 <div id="modeBanner"></div>
 
+<nav class="tabs">
+  <button class="tab active" data-tab="main">Маркировки</button>
+  <button class="tab" data-tab="trash">Удалённые <span class="cnt" id="trashCnt">0</span></button>
+</nav>
+
 <section class="filters">
   <input id="fSearch" type="text" placeholder="Поиск: точная маркировка или части маркировки через %">
   <select id="fCategory"><option value="">Все категории</option></select>
@@ -122,7 +135,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <main>
   <div id="cards" class="cards"></div>
   <div id="empty" class="empty hidden">
-    <p>Пока нет ни одной маркировки.</p>
+    <p id="emptyText">Пока нет ни одной маркировки.</p>
     <button class="btn primary" id="btnAddEmpty">Добавить первую маркировку</button>
   </div>
 </main>
@@ -245,7 +258,7 @@ window.addEventListener('unhandledrejection', function(e){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycby-q-8Y4x-RjdL0LsCdOznYV5yub8tPeG9Hzo3xm83tNqtaeyumh1mGfZ-xWmZUxZOk/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby0zk_9HBXd0GWnyL8uMHGbTGlVV23c3uH2olIoj1qTFk5YWakgpquRX4QERsE_kC5b/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -255,10 +268,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, m =>
 const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
                   Math.random().toString(36).slice(2,6).toUpperCase();
 const nowStr = () => new Date().toLocaleString('ru-RU');
-// нормализация для поиска: только буквы и цифры, без разделителей, в нижнем регистре
 const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
-// Поиск: без % — точь-в-точь (как в таблице, регистр не важен);
-// с % — «%» и пробел означают «любые символы между кусками»
+
+// Поиск: без % — точь-в-точь (регистр не важен); с % — «%» и пробел = любые символы
 function searchMatch(hay, q){
   if (q.includes('%')){
     const toks = q.toLowerCase().split(/[%\s]+/).filter(Boolean).map(norm);
@@ -267,8 +279,8 @@ function searchMatch(hay, q){
   }
   return hay.toLowerCase().includes(q.toLowerCase());
 }
-  
-// ================= Плавающая подсказка (не выходит за экран) =================
+
+// ================= Плавающая подсказка =================
 const tipEl = document.createElement('div'); tipEl.id = 'tooltip'; document.body.appendChild(tipEl);
 function showTip(t){
   tipEl.textContent = t.dataset.tip || '';
@@ -304,6 +316,7 @@ const ICONS = {
   refresh:'<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   x:'<path d="M18 6L6 18M6 6l12 12"/>',
   home:'<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  undo:'<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
@@ -329,10 +342,10 @@ const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
   `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1';
-let cards=[], partsMap=new Map();
+const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1';
+let cards=[], deletedCards=[], partsMap=new Map();
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
-let sDraft=null, currentViewId=null;
+let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
 
 // ================= Миграция старых схем =================
@@ -354,23 +367,29 @@ function schemeJumperCount(s){ return (s && s.jumpers) ? s.jumpers.length : 0; }
 
 // ================= Загрузка =================
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
+function updateTrashCnt(){ const el=$('#trashCnt'); if(el) el.textContent=deletedCards.length; }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v6 · скрипт: OK · карточек: ' + cards.length;
+  if (bi) bi.textContent = 'v8 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
-  let raw=null, msg='', cls='';
+  let raw=null, rawDel=null, msg='', cls='';
   const local=JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
   try{
     const sep = API_URL.includes('?') ? '&' : '?';
     raw = await (await fetch(API_URL+sep+'action=list')).json();
+    rawDel = await (await fetch(API_URL+sep+'action=listDeleted')).json().catch(()=>[]);
     if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
+    if (!Array.isArray(rawDel)) rawDel=[];
     localStorage.setItem(LS_CARDS, JSON.stringify(raw));
   }catch(e){
     msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные.';
     cls='warn';
+    rawDel = JSON.parse(localStorage.getItem(LS_TRASH)||'[]');
   }
   cards=(raw||local).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
+  deletedCards=(rawDel||[]).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
+  localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
   if (raw){
     const ids=new Set(cards.map(c=>c.id));
     const stuck=local.filter(c=>!ids.has(c.id));
@@ -381,6 +400,7 @@ async function loadCards(){
     }
   }
   setBanner(msg, cls);
+  updateTrashCnt();
   fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
 function postToSheet(payload){
@@ -422,10 +442,26 @@ function renderFilters(){
     sel.innerHTML='<option value="">Все</option>'+arr.map(x=>`<option>${esc(x)}</option>`).join(''); sel.value=v; };
   keep($('#fCategory'),cats); keep($('#fManufacturer'),mans);
 }
+function trashCardHTML(c){
+  return `
+    <div class="card deleted">
+      <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
+      <div class="card-marking">${markingHTML(c)}</div>
+      ${c.deletedAt?`<div class="del-info">Удалено: ${esc(c.deletedAt)}</div>`:''}
+      ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''}</div>` : ''}
+      <div class="card-actions">
+        <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
+        <button class="icon-btn" data-tip="Восстановить на лист «Маркировки»" data-act="restore" data-id="${c.id}">${icon('undo')}</button>
+        <button class="icon-btn danger" data-tip="Удалить навсегда" data-act="purge" data-id="${c.id}">${icon('trash')}</button>
+      </div>
+    </div>`;
+}
 function renderCards(){
+  const isTrash = currentTab==='trash';
+  const src = isTrash ? deletedCards : cards;
   const q=$('#fSearch').value.trim();
   const cat=$('#fCategory').value, man=$('#fManufacturer').value;
-  const list=cards.filter(c=>{
+  const list=src.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
     if (q){
@@ -435,8 +471,11 @@ function renderCards(){
     }
     return true;
   });
+  $('#emptyText').textContent = isTrash ? 'Корзина пуста.' : 'Пока нет ни одной маркировки.';
+  $('#btnAddEmpty').classList.toggle('hidden', isTrash);
   $('#empty').classList.toggle('hidden', list.length>0);
   $('#cards').innerHTML=list.map(c=>{
+    if (isTrash) return trashCardHTML(c);
     const jc=schemeJumperCount(c.scheme);
     return `
     <div class="card">
@@ -447,25 +486,46 @@ function renderCards(){
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
         <button class="icon-btn" data-tip="Создать на основе" data-act="clone" data-id="${c.id}">${icon('copy')}</button>
         <button class="icon-btn" data-tip="Редактировать" data-act="edit" data-id="${c.id}">${icon('edit')}</button>
-        <button class="icon-btn danger" data-tip="Удалить" data-act="del" data-id="${c.id}">${icon('trash')}</button>
+        <button class="icon-btn danger" data-tip="Удалить (в корзину)" data-act="del" data-id="${c.id}">${icon('trash')}</button>
       </div>
     </div>`;}).join('');
 }
 
 // ================= Действия на карточках =================
+function findCard(id){
+  return cards.find(x=>x.id===id) || deletedCards.find(x=>x.id===id);
+}
 function cardAction(e){
   const b=e.target.closest('button[data-act]'); if(!b) return;
-  const c=cards.find(x=>x.id===b.dataset.id); if(!c) return;
+  const id=b.dataset.id;
+  const c=findCard(id); if(!c) return;
   const act=b.dataset.act;
-  if(act==='view'){ openView(c.id); }
+  if(act==='view'){ openView(id); }
   else if(act==='clone'){ openEdit(c,'clone'); }
   else if(act==='edit'){ openEdit(c,'edit'); }
   else if(act==='del'){
-    if(!confirm('Удалить маркировку '+c.id+'?')) return;
-    cards=cards.filter(x=>x.id!==c.id);
+    if(!confirm('Удалить маркировку '+c.id+'? Она переместится на лист «Удалённые» в Google Таблице.')) return;
+    cards=cards.filter(x=>x.id!==id);
+    deletedCards.unshift(c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-    postToSheet({action:'delete', id:c.id}).then(()=>setTimeout(loadCards, 800));
-    fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+    updateTrashCnt(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    postToSheet({action:'delete', id}).then(()=>setTimeout(loadCards, 800));
+  }
+  else if(act==='restore'){
+    deletedCards=deletedCards.filter(x=>x.id!==id);
+    cards.unshift(c);
+    localStorage.setItem(LS_CARDS, JSON.stringify(cards));
+    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+    updateTrashCnt(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    postToSheet({action:'restore', id}).then(()=>setTimeout(loadCards, 800));
+  }
+  else if(act==='purge'){
+    if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
+    deletedCards=deletedCards.filter(x=>x.id!==id);
+    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+    updateTrashCnt(); renderCards(); updateFooter();
+    postToSheet({action:'purge', id}).then(()=>setTimeout(loadCards, 800));
   }
 }
 
@@ -474,11 +534,12 @@ function viewHL(i,onOff){
   document.querySelectorAll('#viewBody [data-pidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',onOff));
 }
 function openView(id){
-  const c=cards.find(x=>x.id===id); if(!c) return;
+  const c=findCard(id); if(!c) return;
   currentViewId=id;
+  const inTrash = !cards.find(x=>x.id===id);
   const jc=schemeJumperCount(c.scheme);
   $('#viewBody').innerHTML=`
-    <div class="view-meta">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}</div>
+    <div class="view-meta">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
     <div class="view-marking">${markingHTML(c)}</div>
     <table class="parts-table"><thead><tr><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
       <tbody>${(c.parts||[]).map((p,i)=>`<tr data-pidx="${i}"><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
@@ -495,6 +556,8 @@ function openView(id){
         <button class="btn" id="btnCopyScheme">Копировать схему</button>
       </div>`:''}
     ${c.basedOn?`<div class="based">Создано на основе: ${esc(c.basedOn)}</div>`:''}`;
+  $('#viewEdit').style.display  = inTrash ? 'none' : '';
+  $('#viewClone').style.display = inTrash ? 'none' : '';
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
   const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>navigator.clipboard.writeText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
@@ -903,7 +966,6 @@ function schemeToSVG(s, card){
     out+=`<text x="${t.x}" y="118" class="tlbl">${esc(t.r.term||'—')}</text>`;
     out+=`<circle cx="${t.x}" cy="136" r="10" class="term"/>`;
   });
-  // перемычки: дуга-мостик между клеммами (белая подложка + тёмная линия, видна поверх проводов)
   (s.jumpers||[]).forEach(j=>{
     const A=terms.find(t=>(t.r.term||'')===j.a), B=terms.find(t=>(t.r.term||'')===j.b);
     if (A && B && A.x!==B.x){
@@ -913,7 +975,6 @@ function schemeToSVG(s, card){
       out+=`<path d="${pth}" fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>`;
     }
   });
-  // подпись цвета жилы: справа от своей линии, с зазором — линию не пересекает
   const wireLbl=(x,name,yC)=>name?`<text x="${x+14}" y="${yC}" transform="rotate(-90 ${x+14} ${yC})" class="wirelbl" fill="${wireColor(name)}">${esc(name)}</text>`:'';
   let H;
   if (s.type===1){
@@ -996,6 +1057,12 @@ function init(){
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
   on('#cards','click',cardAction);
 
+  $$('.tab').forEach(t=>t.addEventListener('click',()=>{
+    currentTab=t.dataset.tab;
+    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
+    renderCards();
+  }));
+
   on('#eCategory','input',updatePartsDatalist);
   on('#eManufacturer','input',updatePartsDatalist);
 
@@ -1021,6 +1088,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v6</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v8</footer>
 </body>
 </html>
