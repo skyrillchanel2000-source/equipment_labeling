@@ -17,8 +17,8 @@ header h1{font-size:20px;margin:0}
 .icon-btn svg{width:18px;height:18px}
 .icon-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 .icon-btn.primary:hover{background:#1e4fd6;color:#fff}
-[data-tip]{position:relative}
-[data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;white-space:nowrap;z-index:60;pointer-events:none}
+#tooltip{position:fixed;z-index:100;background:#111827;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;line-height:1.4;max-width:320px;pointer-events:none;display:none;white-space:normal;word-break:break-word}
+#tooltip.show{display:block}
 #modeBanner{padding:10px 22px;font-size:14px}
 #modeBanner.info{background:#e0edff;color:#1d4ed8}
 #modeBanner.warn{background:#fdecea;color:#b3261e}
@@ -67,6 +67,7 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .cable-head label{margin-bottom:0}
 .block-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
 .block-actions .hint{margin:0}
+.jumper-row{display:grid;grid-template-columns:auto 1fr auto 1fr 40px;gap:6px;align-items:center;margin-bottom:6px}
 .scheme-table{width:100%;border-collapse:collapse;margin:8px 0}
 .scheme-table th,.scheme-table td{border:1px solid var(--line);padding:4px 6px;font-size:13px}
 .scheme-table th{background:#f6f8fb;text-align:left}
@@ -112,7 +113,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <div id="modeBanner"></div>
 
 <section class="filters">
-  <input id="fSearch" type="text" placeholder="Поиск: маркировка, модель, описание…">
+  <input id="fSearch" type="text" placeholder="Поиск: разделители и регистр не важны…">
   <select id="fCategory"><option value="">Все категории</option></select>
   <select id="fManufacturer"><option value="">Все производители</option></select>
 </section>
@@ -156,7 +157,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
       <fieldset>
         <legend>Части маркировки</legend>
         <div class="parts-toolbar">
-          <span class="hint">У каждой части свой разделитель — селектор в её строке (соединяет её со следующей частью)</span>
+          <span class="hint">Подсказки частей зависят от категории и производителя. У каждой части — свой разделитель.</span>
           <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
         </div>
         <div id="partsRows"></div>
@@ -201,6 +202,11 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <button class="icon-btn" id="btnAddCable" data-icon="plus" data-tip="Добавить кабель — новая таблица со своим количеством клемм"></button>
         <span class="hint">Добавить кабель</span>
       </div>
+      <div id="jumpersWrap"></div>
+      <div class="block-actions" id="addJumperRow">
+        <button class="icon-btn" id="btnAddJumper" data-icon="plus" data-tip="Добавить перемычку между двумя клеммами"></button>
+        <span class="hint">Добавить перемычку</span>
+      </div>
       <h4>Предпросмотр (вставляется в Excel)</h4>
       <pre id="schemePreview"></pre>
     </div>
@@ -216,6 +222,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <datalist id="dlParts"></datalist>
 <datalist id="dlCables"></datalist>
 <datalist id="dlWires"></datalist>
+<datalist id="dlTerms"></datalist>
 
 <script>
 /* Дозорный: покажет ошибку, даже если основной скрипт упадёт */
@@ -247,6 +254,34 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, m =>
 const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
                   Math.random().toString(36).slice(2,6).toUpperCase();
 const nowStr = () => new Date().toLocaleString('ru-RU');
+// нормализация для поиска: только буквы и цифры, без разделителей, в нижнем регистре
+const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
+
+// ================= Плавающая подсказка (не выходит за экран) =================
+const tipEl = document.createElement('div'); tipEl.id = 'tooltip'; document.body.appendChild(tipEl);
+function showTip(t){
+  tipEl.textContent = t.dataset.tip || '';
+  if (!tipEl.textContent) return;
+  tipEl.classList.add('show');
+  const r = t.getBoundingClientRect();
+  const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+  let x = r.left + r.width/2 - tw/2;
+  x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+  let y = r.bottom + 8;
+  if (y + th > window.innerHeight - 8) y = r.top - th - 8;
+  if (y < 8) y = 8;
+  tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
+}
+function hideTip(){ tipEl.classList.remove('show'); }
+document.addEventListener('mouseover', e => {
+  const t = e.target.closest('[data-tip]');
+  if (t) showTip(t);
+});
+document.addEventListener('mouseout', e => {
+  const t = e.target.closest('[data-tip]');
+  if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) hideTip();
+});
+window.addEventListener('scroll', hideTip, true);
 
 const ICONS = {
   plus:'<path d="M12 5v14M5 12h14"/>',
@@ -277,7 +312,6 @@ const unitOptions = sel => UNITS.map(u =>
 const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
-// разделители для каждой части (свой в каждой строке)
 const SEP_OPTIONS = [['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['_','подчёркивание «_»'],['','(нет)']];
 const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
   `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
@@ -295,21 +329,22 @@ function migrateScheme(s){
   if (s.cables || s.terminals) return s;
   const rows=(s.rows||[]).map(r=>({term:r.tm||'', wire:r.wire||'', boxTerm:r.b||''}));
   const type=s.type || (rows.some(r=>r.boxTerm)?3 : rows.some(r=>r.wire)?2 : 1);
-  if (type===1) return { type:1, terminals: rows.map(r=>({term:r.term})) };
+  if (type===1) return { type:1, terminals: rows.map(r=>({term:r.term})), jumpers:[] };
   return { type, box:{ mark:(s.box&&s.box.mark)||'', desc:(s.box&&s.box.desc)||'' },
-    cables:[{ mark:(s.cable&&s.cable.mark)||'', len:(s.cable&&s.cable.len)||'', rows }] };
+    cables:[{ mark:(s.cable&&s.cable.mark)||'', len:(s.cable&&s.cable.len)||'', rows }], jumpers:[] };
 }
 function schemeConnCount(s){
   if (!s) return 0;
   if (s.type===1) return (s.terminals||[]).length;
   return (s.cables||[]).reduce((a,c)=>a+(c.rows||[]).length,0);
 }
+function schemeJumperCount(s){ return (s && s.jumpers) ? s.jumpers.length : 0; }
 
 // ================= Загрузка =================
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v5 · скрипт: OK · карточек: ' + cards.length;
+  if (bi) bi.textContent = 'v6 · скрипт: OK · карточек: ' + cards.length;
 }
 async function loadCards(){
   let raw=null, msg='', cls='';
@@ -320,25 +355,22 @@ async function loadCards(){
     if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
     localStorage.setItem(LS_CARDS, JSON.stringify(raw));
   }catch(e){
-    msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные. Проверьте, что у развертывания Apps Script доступ «Все».';
+    msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные.';
     cls='warn';
   }
   cards=(raw||local).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
   if (raw){
-    // контроль записи: карточки, которые есть локально, но их нет в таблице
     const ids=new Set(cards.map(c=>c.id));
     const stuck=local.filter(c=>!ids.has(c.id));
     if (stuck.length){
       cards=stuck.map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c).concat(cards);
-      msg='Внимание: '+stuck.length+' карточк(а/и) отсутствуют в Google Таблице — сохранение не прошло. Откройте карточку и сохраните ещё раз (проверьте доступ развертывания «Все»).';
+      msg='Внимание: '+stuck.length+' карточк(а/и) отсутствуют в Google Таблице — сохранение не прошло. Откройте карточку и сохраните ещё раз.';
       cls='warn';
     }
   }
   setBanner(msg, cls);
   fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
-
-// POST в no-cors режиме: запрос гарантированно доходит до Apps Script (обход CORS)
 function postToSheet(payload){
   return fetch(API_URL, {
     method:'POST', mode:'no-cors',
@@ -352,9 +384,9 @@ async function persistCard(card){
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
   try{
     await postToSheet({action:'save', card});
-    setTimeout(loadCards, 800); // перечитаем таблицу — подтвердим запись
+    setTimeout(loadCards, 800);
   }catch(e){
-    alert('Не удалось отправить данные в Google Таблицу (нет сети?). Карточка сохранена локально — нажмите «Обновить» позже.');
+    alert('Не удалось отправить данные в Google Таблицу (нет сети?). Карточка сохранена локально.');
   }
 }
 
@@ -379,31 +411,34 @@ function renderFilters(){
   keep($('#fCategory'),cats); keep($('#fManufacturer'),mans);
 }
 function renderCards(){
-  const q=$('#fSearch').value.trim().toLowerCase();
+  const q=$('#fSearch').value.trim();
   const cat=$('#fCategory').value, man=$('#fManufacturer').value;
+  const qn=norm(q);
   const list=cards.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
-    if (q){
+    if (qn){
       const hay=[c.marking,c.model,c.category,c.manufacturer,c.comment,
-        ...(c.parts||[]).flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ').toLowerCase();
-      if (!hay.includes(q)) return false;
+        ...(c.parts||[]).flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
+      if (!norm(hay).includes(qn)) return false;
     }
     return true;
   });
   $('#empty').classList.toggle('hidden', list.length>0);
-  $('#cards').innerHTML=list.map(c=>`
+  $('#cards').innerHTML=list.map(c=>{
+    const jc=schemeJumperCount(c.scheme);
+    return `
     <div class="card">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
       <div class="card-marking">${markingHTML(c)}</div>
-      ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}</div>` : ''}
+      ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
       <div class="card-actions">
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
         <button class="icon-btn" data-tip="Создать на основе" data-act="clone" data-id="${c.id}">${icon('copy')}</button>
         <button class="icon-btn" data-tip="Редактировать" data-act="edit" data-id="${c.id}">${icon('edit')}</button>
         <button class="icon-btn danger" data-tip="Удалить" data-act="del" data-id="${c.id}">${icon('trash')}</button>
       </div>
-    </div>`).join('');
+    </div>`;}).join('');
 }
 
 // ================= Действия на карточках =================
@@ -430,6 +465,7 @@ function viewHL(i,onOff){
 function openView(id){
   const c=cards.find(x=>x.id===id); if(!c) return;
   currentViewId=id;
+  const jc=schemeJumperCount(c.scheme);
   $('#viewBody').innerHTML=`
     <div class="view-meta">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}</div>
     <div class="view-marking">${markingHTML(c)}</div>
@@ -439,7 +475,7 @@ function openView(id){
     ${c.schemeType && c.scheme ? `
       <div class="scheme-actions">
         <button class="icon-btn" id="btnToggleScheme" data-tip="Показать / скрыть схему">${icon('cpu')}</button>
-        <span>Показать схему подключения</span>
+        <span>Показать схему подключения${jc?' (перемычек: '+jc+')':''}</span>
       </div>
       <div id="viewScheme" class="hidden">
         <div class="svg-wrap">${schemeToSVG(c.scheme, c)}</div>
@@ -459,6 +495,17 @@ function openView(id){
 }
 
 // ================= Создание / редактирование =================
+function updatePartsDatalist(){
+  const cat=$('#eCategory').value.trim().toLowerCase();
+  const man=$('#eManufacturer').value.trim().toLowerCase();
+  const pool=[];
+  cards.forEach(c=>{
+    if (cat && (c.category||'').toLowerCase()!==cat) return;
+    if (man && (c.manufacturer||'').toLowerCase()!==man) return;
+    (c.parts||[]).forEach(p=>{ if (p.part && !pool.includes(p.part)) pool.push(p.part); });
+  });
+  $('#dlParts').innerHTML=pool.sort().map(v=>`<option value="${esc(v)}">`).join('');
+}
 function renderPartRows(parts, defSep){
   $('#partsRows').innerHTML=parts.map(p=>`
     <div class="part-row">
@@ -538,6 +585,7 @@ function openEdit(src, mode){
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
+  updatePartsDatalist();
   renderPartRows(base.parts, base.sep); updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
 }
@@ -560,7 +608,6 @@ function collectCard(){
     scheme:draftScheme, schemeType:draftScheme?draftScheme.type:0,
     schemeText:draftSchemeText, basedOn:editBaseOn
   };
-  // сборка маркировки: каждая часть + свой разделитель после неё
   let marking='';
   parts.forEach(p=>{ marking += (marking ? p.sepAfter : '') + p.part; });
   card.marking=marking;
@@ -578,14 +625,21 @@ const newCable = () => ({ mark:'', len:'', rows:[{term:'',wire:'',boxTerm:''}] }
 
 function openScheme(){
   sDraft = draftScheme ? migrateScheme(JSON.parse(JSON.stringify(draftScheme)))
-    : { type:1, terminals:[{term:''}], box:{mark:'',desc:''}, cables:[newCable()] };
+    : { type:1, terminals:[{term:''}], box:{mark:'',desc:''}, cables:[newCable()], jumpers:[] };
   if (sDraft.type===1 && !(sDraft.terminals&&sDraft.terminals.length)) sDraft.terminals=[{term:''}];
   if (sDraft.type>=2){
     if (!sDraft.box) sDraft.box={mark:'',desc:''};
     if (!sDraft.cables || !sDraft.cables.length) sDraft.cables=[newCable()];
   }
+  if (!sDraft.jumpers) sDraft.jumpers=[];
   $('#schemeModal').classList.remove('hidden');
   renderSchemeEditor();
+}
+function fillTermsDatalist(){
+  const set=new Set();
+  if (sDraft.type===1) (sDraft.terminals||[]).forEach(r=>r.term&&r.term.trim()&&set.add(r.term.trim()));
+  else (sDraft.cables||[]).forEach(c=>(c.rows||[]).forEach(r=>r.term&&r.term.trim()&&set.add(r.term.trim())));
+  $('#dlTerms').innerHTML=[...set].sort().map(v=>`<option value="${esc(v)}">`).join('');
 }
 function termBlockHTML(){
   const rows=(sDraft.terminals||[]).map((r,ri)=>`
@@ -628,11 +682,23 @@ function cableBlockHTML(ci, c){
       <span class="hint">Добавить клемму</span>
     </div></div>`;
 }
+function renderJumpers(){
+  fillTermsDatalist();
+  $('#jumpersWrap').innerHTML=(sDraft.jumpers||[]).map((j,ji)=>`
+    <div class="jumper-row">
+      <span class="hint">перемычка</span>
+      <input class="j-a" list="dlTerms" data-ji="${ji}" value="${esc(j.a||'')}" placeholder="клемма 1">
+      <span class="hint">—</span>
+      <input class="j-b" list="dlTerms" data-ji="${ji}" value="${esc(j.b||'')}" placeholder="клемма 2">
+      <button class="icon-btn danger j-del" data-ji="${ji}" data-tip="Удалить перемычку">${icon('trash')}</button>
+    </div>`).join('');
+  schemePreviewFill();
+}
 function renderCables(){
   $('#cablesWrap').innerHTML = sDraft.type===1
     ? termBlockHTML()
     : (sDraft.cables||[]).map((c,i)=>cableBlockHTML(i,c)).join('');
-  schemePreviewFill();
+  renderJumpers();
 }
 function renderSchemeEditor(){
   document.querySelector(`input[name="sType"][value="${sDraft.type}"]`).checked=true;
@@ -647,7 +713,8 @@ function updateSchemeStatus(){
     const extra = draftScheme.type===1
       ? `клемм: ${draftScheme.terminals.length}`
       : `кабелей: ${draftScheme.cables.length}, соединений: ${schemeConnCount(draftScheme)}`;
-    $('#schemeStatus').textContent=SCHEME_NAMES[draftScheme.type]+' · '+extra;
+    const jc=schemeJumperCount(draftScheme);
+    $('#schemeStatus').textContent=SCHEME_NAMES[draftScheme.type]+' · '+extra+(jc?` · перемычек: ${jc}`:'');
     $('#editSchemeBox').classList.remove('hidden');
     $('#editSchemeText').textContent=draftSchemeText;
   } else {
@@ -658,25 +725,29 @@ function updateSchemeStatus(){
 function onSchemeType(e){
   if (!sDraft) return;
   const t=+e.target.value;
+  const jmp=sDraft.jumpers||[];
   const flat = sDraft.type===1
     ? (sDraft.terminals||[]).map(x=>({term:x.term||'',wire:'',boxTerm:''}))
     : (sDraft.cables||[]).flatMap(c=>(c.rows||[]).map(r=>({term:r.term||'',wire:r.wire||'',boxTerm:r.boxTerm||''})));
   if (t===1){
-    sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}]};
+    sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}], jumpers:jmp};
   } else {
     const prev=(sDraft.type>=2 && sDraft.cables && sDraft.cables[0]) ? sDraft.cables[0] : null;
     sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
       cables:[{mark:(prev&&prev.mark)||'', len:(prev&&prev.len)||'',
-               rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}]};
+               rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}], jumpers:jmp};
   }
   renderSchemeEditor();
 }
 function applyScheme(){
   let clean;
+  const jumpers=(sDraft.jumpers||[])
+    .map(j=>({a:(j.a||'').trim(), b:(j.b||'').trim()}))
+    .filter(j=>j.a && j.b);
   if (sDraft.type===1){
     const rows=sDraft.terminals.filter(r=>(r.term||'').trim());
     if (!rows.length) return alert('Добавьте хотя бы одну клемму');
-    clean={type:1, terminals:rows.map(r=>({term:r.term.trim()}))};
+    clean={type:1, terminals:rows.map(r=>({term:r.term.trim()})), jumpers};
   } else {
     const cables=sDraft.cables
       .map(c=>({ mark:(c.mark||'').trim(), len:(c.len||'').trim(),
@@ -684,7 +755,7 @@ function applyScheme(){
                    .map(r=>({term:(r.term||'').trim(),wire:(r.wire||'').trim(),boxTerm:(r.boxTerm||'').trim()})) }))
       .filter(c=>c.mark||c.rows.length);
     if (!cables.length) return alert('Добавьте хотя бы один кабель с клеммой');
-    clean={type:sDraft.type, cables};
+    clean={type:sDraft.type, cables, jumpers};
     if (sDraft.type===3) clean.box={mark:$('#sBoxMark').value.trim(), desc:$('#sBoxDesc').value.trim()};
   }
   draftScheme=clean;
@@ -707,6 +778,7 @@ function schemeInput(e){
     }
     else if (t.classList.contains('r-box')) c.rows[+t.dataset.ri].boxTerm=t.value;
   }
+  fillTermsDatalist();
   schemePreviewFill();
 }
 function schemeClick(e){
@@ -727,34 +799,61 @@ function schemeClick(e){
     renderCables();
   }
 }
+function jumperInput(e){
+  const t=e.target; if(!sDraft) return;
+  if (t.dataset.ji===undefined) return;
+  if (t.classList.contains('j-a')) sDraft.jumpers[+t.dataset.ji].a=t.value;
+  else if (t.classList.contains('j-b')) sDraft.jumpers[+t.dataset.ji].b=t.value;
+  schemePreviewFill();
+}
+function jumperClick(e){
+  const btn=e.target.closest('button.j-del'); if(!btn || !sDraft) return;
+  sDraft.jumpers.splice(+btn.dataset.ji,1);
+  renderJumpers();
+}
 
 // ================= Схема текстом для Excel =================
+function pushJumpers(L, J){
+  if (J.length){
+    L.push('Перемычки:');
+    J.forEach(j=>L.push(j.a+' — '+j.b));
+  }
+}
 function schemeToText(s){
   s=migrateScheme(s); if(!s) return '';
-  const T='\t', L=[];
+  const T='\t', J=s.jumpers||[], L=[];
   if (s.type===1){
     const rows=(s.terminals||[]).filter(r=>r.term);
-    if (!rows.length) return '';
+    if (!rows.length && !J.length) return '';
     L.push('Схема: в оборудовании только клеммы');
-    L.push('№'+T+'Маркировка клеммы');
-    rows.forEach((r,i)=>L.push((i+1)+T+r.term));
+    if (rows.length){
+      L.push('№'+T+'Маркировка клеммы');
+      rows.forEach((r,i)=>L.push((i+1)+T+r.term));
+    }
+    pushJumpers(L,J);
   } else if (s.type===2){
     const lines=[];
     (s.cables||[]).forEach(c=>c.rows.forEach(r=>{
       if (r.term||r.wire) lines.push(r.term+T+(c.mark||'')+T+(r.wire||'')); }));
-    if (!lines.length) return '';
+    if (!lines.length && !J.length) return '';
     L.push('Схема: клеммы + комплектный кабель');
-    L.push('Маркировка клеммы'+T+'Маркировка кабеля'+T+'Цвет жилы');
-    L.push(...lines);
+    if (lines.length){
+      L.push('Маркировка клеммы'+T+'Маркировка кабеля'+T+'Цвет жилы');
+      L.push(...lines);
+    }
+    pushJumpers(L,J);
   } else {
     const lines=[];
     (s.cables||[]).forEach(c=>c.rows.forEach(r=>{
       if (r.term||r.wire||r.boxTerm) lines.push(r.term+T+(c.mark||'')+T+(r.wire||'')+T+(r.boxTerm||'')); }));
-    if (!lines.length) return '';
+    if (!lines.length && !J.length) return '';
     L.push('Схема: кабель(и) из оборудования в комплектную коробку');
     L.push('Коробка: '+((s.box&&s.box.mark)||'—')+((s.box&&s.box.desc)?' — '+s.box.desc:''));
-    L.push('Маркировка клеммы'+T+'Маркировка кабеля'+T+'Цвет жилы'+T+'Клемма в коробке');
-    L.push(...lines);
+    if (lines.length){
+      L.push('Маркировка клеммы'+T+'Маркировка кабеля'+T+'Цвет жилы'+T+'Клемма в коробке');
+      L.push(...lines);
+    }
+    pushJumpers(L,J);
   }
   return L.join('\n');
 }
@@ -793,7 +892,18 @@ function schemeToSVG(s, card){
     out+=`<text x="${t.x}" y="118" class="tlbl">${esc(t.r.term||'—')}</text>`;
     out+=`<circle cx="${t.x}" cy="136" r="10" class="term"/>`;
   });
-  const wireLbl=(x,name)=>name?`<text x="${x+5}" y="235" transform="rotate(-90 ${x+5} 235)" class="wirelbl" fill="${wireColor(name)}">${esc(name)}</text>`:'';
+  // перемычки: дуга-мостик между клеммами (белая подложка + тёмная линия, видна поверх проводов)
+  (s.jumpers||[]).forEach(j=>{
+    const A=terms.find(t=>(t.r.term||'')===j.a), B=terms.find(t=>(t.r.term||'')===j.b);
+    if (A && B && A.x!==B.x){
+      const y=146, cy=146+Math.min(34, 24+Math.abs(B.x-A.x)*0.1);
+      const pth=`M ${A.x} ${y} C ${A.x} ${cy}, ${B.x} ${cy}, ${B.x} ${y}`;
+      out+=`<path d="${pth}" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" opacity="0.9"/>`;
+      out+=`<path d="${pth}" fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>`;
+    }
+  });
+  // подпись цвета жилы: справа от своей линии, с зазором — линию не пересекает
+  const wireLbl=(x,name,yC)=>name?`<text x="${x+14}" y="${yC}" transform="rotate(-90 ${x+14} ${yC})" class="wirelbl" fill="${wireColor(name)}">${esc(name)}</text>`:'';
   let H;
   if (s.type===1){
     H=205;
@@ -804,7 +914,7 @@ function schemeToSVG(s, card){
       const col=wireColor(t.r.wire);
       out+=`<line x1="${t.x}" y1="146" x2="${t.x}" y2="266" stroke="${col}" stroke-width="4"/>`;
       out+=`<rect x="${t.x-8}" y="266" width="16" height="11" rx="2" fill="${col}" stroke="#333"/>`;
-      out+=wireLbl(t.x, t.r.wire);
+      out+=wireLbl(t.x, t.r.wire, 206);
     });
   } else {
     const xs=terms.map(t=>t.x);
@@ -813,7 +923,7 @@ function schemeToSVG(s, card){
     terms.forEach(t=>{
       const col=wireColor(t.r.wire);
       out+=`<line x1="${t.x}" y1="146" x2="${t.x}" y2="290" stroke="${col}" stroke-width="4"/>`;
-      out+=wireLbl(t.x, t.r.wire);
+      out+=wireLbl(t.x, t.r.wire, 218);
       out+=`<circle cx="${t.x}" cy="300" r="10" class="term"/>`;
       out+=`<text x="${t.x}" y="334" class="tlbl">${esc(t.r.boxTerm||'—')}</text>`;
     });
@@ -830,7 +940,7 @@ function schemeToSVG(s, card){
 function fillDatalists(){
   partsMap=new Map();
   cards.forEach(c=>(c.parts||[]).forEach(p=>{
-    if (p.part) partsMap.set(p.part, {desc:p.desc||'', char:p.char||'', unit:p.unit||''});
+    if (p.part && !partsMap.has(p.part)) partsMap.set(p.part, {desc:p.desc||'', char:p.char||'', unit:p.unit||''});
   }));
   const opts=arr=>arr.map(v=>`<option value="${esc(v)}">`).join('');
   $('#dlCategories').innerHTML=opts([...new Set(cards.map(c=>c.category).filter(Boolean))].sort());
@@ -867,6 +977,7 @@ function init(){
   on('#btnOpenScheme','click',openScheme);
   on('#btnAddPart','click',addPartRow);
   on('#btnAddCable','click',()=>{ if(!sDraft) return; sDraft.cables.push(newCable()); renderCables(); });
+  on('#btnAddJumper','click',()=>{ if(!sDraft) return; sDraft.jumpers=sDraft.jumpers||[]; sDraft.jumpers.push({a:'',b:''}); renderJumpers(); });
   on('#sBoxMark','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.mark=e.target.value; schemePreviewFill(); });
   on('#sBoxDesc','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.desc=e.target.value; schemePreviewFill(); });
   on('#btnApplyScheme','click',applyScheme);
@@ -874,12 +985,17 @@ function init(){
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
   on('#cards','click',cardAction);
 
+  on('#eCategory','input',updatePartsDatalist);
+  on('#eManufacturer','input',updatePartsDatalist);
+
   on('#partsRows','input',refreshPartStyles);
   on('#partsRows','change',partsChange);
   on('#partsRows','click',partDelete);
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
+  on('#jumpersWrap','input',jumperInput);
+  on('#jumpersWrap','click',jumperClick);
 
   $$('input[name="sType"]').forEach(r=>r.addEventListener('change', onSchemeType));
   $$('[data-close]').forEach(b=>b.addEventListener('click', e=>{
@@ -894,6 +1010,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v5</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v6</footer>
 </body>
 </html>
