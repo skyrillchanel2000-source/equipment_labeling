@@ -1,10 +1,24 @@
 // ======================================================================
-// ССЫЛКА НА GOOGLE-ТАБЛИЦУ. При новом развертывании меняется только она.
+// ССЫЛКА НА GOOGLE-ТАБЛИЦУ. Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbwR8HwfODu8OeSIWZe_hpwslnes9Hte6T75N4ahuEt1r83f7eaTUswyO4475aRja23y/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwyWiRSZNokcJmr3SX8jXyw87Tn5M7SlOBwtcA5qmmZWubmckzNTz42rYCcjZu0yNBP/exec';
+
+// Любая ошибка скрипта показывается красной строкой вверху страницы
+window.addEventListener('error', e => {
+  const b = document.getElementById('modeBanner');
+  if (b) { b.textContent = 'Ошибка скрипта: ' + e.message; b.className = 'warn'; }
+});
+window.addEventListener('unhandledrejection', e => {
+  const b = document.getElementById('modeBanner');
+  const m = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+  if (b) { b.textContent = 'Ошибка сети/скрипта: ' + m; b.className = 'warn'; }
+});
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+// безопасное навешивание обработчика: нет элемента — пропускаем, ничего не ломается
+const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
+
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
@@ -19,7 +33,6 @@ const ICONS = {
   trash:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>',
   download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   refresh:'<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
-  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   x:'<path d="M18 6L6 18M6 6l12 12"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
@@ -42,13 +55,10 @@ const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1', LS_CFG='mk_cfg_v1';
-let cfg = Object.assign({apiUrl:API_URL}, JSON.parse(localStorage.getItem(LS_CFG)||'{}'));
-if (!cfg.apiUrl) cfg.apiUrl = API_URL;
+const LS_CARDS='mk_cards_v1';
 let cards=[], partsMap=new Map();
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null;
-
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
 
 // ================= Миграция старых схем =================
@@ -71,20 +81,15 @@ function schemeConnCount(s){
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
 async function loadCards(){
   let raw;
-  if (cfg.apiUrl){
-    try{
-      const sep = cfg.apiUrl.includes('?')?'&':'?';
-      raw = await (await fetch(cfg.apiUrl+sep+'action=list')).json();
-      if (!Array.isArray(raw)) throw new Error('bad response');
-      localStorage.setItem(LS_CARDS, JSON.stringify(raw));
-      setBanner('');
-    }catch(e){
-      raw = JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
-      setBanner('Не удалось получить данные из Google Таблицы — показана локальная копия.','warn');
-    }
-  } else {
+  try{
+    const sep = API_URL.includes('?') ? '&' : '?';
+    raw = await (await fetch(API_URL+sep+'action=list')).json();
+    if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
+    localStorage.setItem(LS_CARDS, JSON.stringify(raw));
+    setBanner('');
+  }catch(e){
     raw = JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
-    setBanner('Демо-режим: укажите URL Apps Script в настройках.','info');
+    setBanner('Не удалось получить данные из Google Таблицы ('+e.message+') — показана локальная копия.','warn');
   }
   cards = raw.map(c => c.scheme ? Object.assign({}, c, {scheme:migrateScheme(c.scheme)}) : c);
   fillDatalists(); renderFilters(); renderCards();
@@ -93,10 +98,8 @@ async function persistCard(card){
   const i = cards.findIndex(c => c.id === card.id);
   if (i >= 0) cards[i] = card; else cards.unshift(card);
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-  if (cfg.apiUrl){
-    try{ await fetch(cfg.apiUrl, { method:'POST', body: JSON.stringify({action:'save', card}) }); }
-    catch(e){ alert('Не удалось записать в Google Таблицу. Карточка сохранена локально.'); }
-  }
+  try{ await fetch(API_URL, { method:'POST', body: JSON.stringify({action:'save', card}) }); }
+  catch(e){ alert('Не удалось записать в Google Таблицу. Карточка сохранена локально.'); }
 }
 
 // ================= Список карточек =================
@@ -142,8 +145,8 @@ function renderCards(){
 }
 
 // ================= Просмотр =================
-function viewHL(i,on){
-  document.querySelectorAll('#viewBody [data-pidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',on));
+function viewHL(i,onOff){
+  document.querySelectorAll('#viewBody [data-pidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',onOff));
 }
 function openView(id){
   const c=cards.find(x=>x.id===id); if(!c) return;
@@ -169,7 +172,6 @@ function openView(id){
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
   const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>navigator.clipboard.writeText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
-  // связная подсветка: часть маркировки <-> строка с описанием
   $$('#viewBody [data-pidx]').forEach(el=>{
     el.addEventListener('mouseenter', ()=>viewHL(el.dataset.pidx,true));
     el.addEventListener('mouseleave', ()=>viewHL(el.dataset.pidx,false));
@@ -207,6 +209,29 @@ function refreshPartStyles(){
     const p={desc:r.querySelector('.p-desc').value, char:r.querySelector('.p-char').value, unit:r.querySelector('.p-unit').value};
     return `<span class="part pc${i%8}" data-tip="${esc(partTip(p))}">${esc(v)}</span>`;
   }).join(esc($('#eSep').value)) || '<i>пусто</i>';
+}
+function addPartRow(){
+  $('#partsRows').insertAdjacentHTML('beforeend', `
+    <div class="part-row"><span class="idx"></span>
+    <input class="p-part" list="dlParts" placeholder="часть">
+    <input class="p-desc" placeholder="описание части">
+    <input class="p-char" placeholder="характеристика">
+    <select class="p-unit">${unitOptions('')}</select>
+    <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button></div>`);
+  renumberParts();
+}
+function partAutofill(e){
+  if (!e.target.classList.contains('p-part')) return;
+  const rec=partsMap.get(e.target.value.trim()); if(!rec) return;
+  const row=e.target.closest('.part-row');
+  const d=row.querySelector('.p-desc'); if(!d.value) d.value=rec.desc||'';
+  const ch=row.querySelector('.p-char');
+  if (rec.char && !ch.value){ ch.value=rec.char; if (rec.unit) row.querySelector('.p-unit').value=rec.unit; }
+  refreshPartStyles();
+}
+function partDelete(e){
+  if (!e.target.closest('.p-del')) return;
+  e.target.closest('.part-row').remove(); renumberParts(); refreshPartStyles();
 }
 function openEdit(src, mode){
   editId=null; editBaseOn='';
@@ -335,6 +360,78 @@ function updateSchemeStatus(){
   } else {
     $('#schemeStatus').textContent='не задана';
     $('#editSchemeBox').classList.add('hidden');
+  }
+}
+function onSchemeType(e){
+  if (!sDraft) return;
+  const t=+e.target.value;
+  const flat = sDraft.type===1
+    ? (sDraft.terminals||[]).map(x=>({term:x.term||'',wire:'',boxTerm:''}))
+    : (sDraft.cables||[]).flatMap(c=>(c.rows||[]).map(r=>({term:r.term||'',wire:r.wire||'',boxTerm:r.boxTerm||''})));
+  if (t===1){
+    sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}]};
+  } else {
+    const prev=sDraft.type>=2&&sDraft.cables&&sDraft.cables[0]?sDraft.cables[0]:null;
+    sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
+      cables:[{mark:prev?prev.mark||'', len:prev?prev.len||'',
+               rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}]};
+  }
+  renderSchemeEditor();
+}
+function applyScheme(){
+  let clean;
+  if (sDraft.type===1){
+    const rows=sDraft.terminals.filter(r=>(r.term||'').trim());
+    if (!rows.length) return alert('Добавьте хотя бы одну клемму');
+    clean={type:1, terminals:rows.map(r=>({term:r.term.trim()}))};
+  } else {
+    const cables=sDraft.cables
+      .map(c=>({ mark:(c.mark||'').trim(), len:(c.len||'').trim(),
+        rows:c.rows.filter(r=>(r.term||'').trim()||(r.wire||'').trim()||(r.boxTerm||'').trim())
+                   .map(r=>({term:(r.term||'').trim(),wire:(r.wire||'').trim(),boxTerm:(r.boxTerm||'').trim()})) }))
+      .filter(c=>c.mark||c.rows.length);
+    if (!cables.length) return alert('Добавьте хотя бы один кабель с клеммой');
+    clean={type:sDraft.type, cables};
+    if (sDraft.type===3) clean.box={mark:$('#sBoxMark').value.trim(), desc:$('#sBoxDesc').value.trim()};
+  }
+  draftScheme=clean;
+  draftSchemeText=schemeToText(clean);
+  updateSchemeStatus();
+  $('#schemeModal').classList.add('hidden');
+}
+function schemeInput(e){
+  const t=e.target, block=t.closest('.cable-block'); if(!block || !sDraft) return;
+  if (sDraft.type===1){
+    if (t.classList.contains('r-term')) sDraft.terminals[+t.dataset.ri].term=t.value;
+  } else {
+    const ci=+block.dataset.ci, c=sDraft.cables[ci];
+    if (t.classList.contains('c-mark')){ c.mark=t.value; block.querySelectorAll('.c-cable-cell').forEach(td=>td.textContent=t.value||'—'); }
+    else if (t.classList.contains('c-len')) c.len=t.value;
+    else if (t.classList.contains('r-term')) c.rows[+t.dataset.ri].term=t.value;
+    else if (t.classList.contains('r-wire')){
+      c.rows[+t.dataset.ri].wire=t.value;
+      const sw=t.closest('.wire-cell').querySelector('.sw'); if(sw) sw.style.background=wireColor(t.value);
+    }
+    else if (t.classList.contains('r-box')) c.rows[+t.dataset.ri].boxTerm=t.value;
+  }
+  schemePreviewFill();
+}
+function schemeClick(e){
+  const btn=e.target.closest('button'); if(!btn || !sDraft) return;
+  const block=btn.closest('.cable-block');
+  if (btn.classList.contains('add-term')){
+    if (sDraft.type===1) sDraft.terminals.push({term:''});
+    else sDraft.cables[+block.dataset.ci].rows.push({term:'',wire:'',boxTerm:''});
+    renderCables();
+  } else if (btn.classList.contains('row-del')){
+    const ri=+btn.dataset.ri;
+    if (sDraft.type===1){ sDraft.terminals.splice(ri,1); if(!sDraft.terminals.length) sDraft.terminals=[{term:''}]; }
+    else { const c=sDraft.cables[+block.dataset.ci]; c.rows.splice(ri,1); if(!c.rows.length) c.rows=[{term:'',wire:'',boxTerm:''}]; }
+    renderCables();
+  } else if (btn.classList.contains('c-del')){
+    sDraft.cables.splice(+btn.dataset.ci,1);
+    if (!sDraft.cables.length) sDraft.cables=[newCable()];
+    renderCables();
   }
 }
 
@@ -469,155 +566,34 @@ function exportCSV(){
 function init(){
   $$('[data-icon]').forEach(el=>el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
 
-  $('#btnAdd').onclick=$('#btnAddEmpty').onclick=()=>openEdit(null,'new');
-  $('#btnRefresh').onclick=loadCards;
-  $('#btnExport').onclick=exportCSV;
-  $('#btnSaveCard').onclick=saveCard;
+  on('#btnAdd','click',()=>openEdit(null,'new'));
+  on('#btnAddEmpty','click',()=>openEdit(null,'new'));
+  on('#btnRefresh','click',loadCards);
+  on('#btnExport','click',exportCSV);
+  on('#btnSaveCard','click',saveCard);
+  on('#btnOpenScheme','click',openScheme);
+  on('#btnAddCable','click',()=>{ if(!sDraft) return; sDraft.cables.push(newCable()); renderCables(); });
+  on('#sBoxMark','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.mark=e.target.value; schemePreviewFill(); });
+  on('#sBoxDesc','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.desc=e.target.value; schemePreviewFill(); });
+  on('#btnApplyScheme','click',applyScheme);
+  on('#viewEdit','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); });
+  on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
 
-  $('#btnSettings').onclick=()=>{ $('#cfgUrl').value=cfg.apiUrl||API_URL; $('#settingsModal').classList.remove('hidden'); };
-  $('#btnSaveCfg').onclick=()=>{
-    cfg.apiUrl=$('#cfgUrl').value.trim()||API_URL;
-    localStorage.setItem(LS_CFG, JSON.stringify(cfg));
-    $('#settingsModal').classList.add('hidden');
-    loadCards();
-  };
-  $('#btnTestUrl').onclick=async()=>{
-    const u=$('#cfgUrl').value.trim(); if(!u) return alert('Введите URL');
-    try{
-      const d=await (await fetch(u+(u.includes('?')?'&':'?')+'action=list')).json();
-      alert('Связь установлена. В таблице карточек: '+(Array.isArray(d)?d.length:'?'));
-    }catch(e){ alert('Ошибка подключения: '+e.message); }
-  };
+  on('#eSep','change',refreshPartStyles);
+  on('#partsRows','input',refreshPartStyles);
+  on('#partsRows','change',partAutofill);
+  on('#partsRows','click',partDelete);
 
-  $('#cards').addEventListener('click', e=>{
-    const b=e.target.closest('button[data-act]'); if(!b) return;
-    const c=cards.find(x=>x.id===b.dataset.id); if(!c) return;
-    if (b.dataset.act==='view') openView(c.id);
-    if (b.dataset.act==='clone') openEdit(c,'clone');
-    if (b.dataset.act==='edit') openEdit(c,'edit');
-    if (b.dataset.act==='del'){
-      if (!confirm('Удалить маркировку '+c.id+'?')) return;
-      cards=cards.filter(x=>x.id!==c.id);
-      localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-      if (cfg.apiUrl) fetch(cfg.apiUrl, {method:'POST', body:JSON.stringify({action:'delete', id:c.id})});
-      fillDatalists(); renderFilters(); renderCards();
-    }
-  });
+  on('#cablesWrap','input',schemeInput);
+  on('#cablesWrap','click',schemeClick);
 
-  // части маркировки
-  $('#btnAddPart').onclick=()=>{
-    $('#partsRows').insertAdjacentHTML('beforeend', `
-      <div class="part-row"><span class="idx"></span>
-      <input class="p-part" list="dlParts" placeholder="часть">
-      <input class="p-desc" placeholder="описание части">
-      <input class="p-char" placeholder="характеристика">
-      <select class="p-unit">${unitOptions('')}</select>
-      <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button></div>`);
-    renumberParts();
-  };
-  $('#partsRows').addEventListener('input', refreshPartStyles);
-  $('#partsRows').addEventListener('change', e=>{
-    if (!e.target.classList.contains('p-part')) return;
-    const rec=partsMap.get(e.target.value.trim()); if(!rec) return;
-    const row=e.target.closest('.part-row');
-    const d=row.querySelector('.p-desc'); if(!d.value) d.value=rec.desc||'';
-    const ch=row.querySelector('.p-char');
-    if (rec.char && !ch.value){ ch.value=rec.char; if (rec.unit) row.querySelector('.p-unit').value=rec.unit; }
-    refreshPartStyles();
-  });
-  $('#partsRows').addEventListener('click', e=>{
-    if (!e.target.closest('.p-del')) return;
-    e.target.closest('.part-row').remove(); renumberParts(); refreshPartStyles();
-  });
-  $('#eSep').addEventListener('change', refreshPartStyles);
-
-  // схема подключения
-  $('#btnOpenScheme').onclick=openScheme;
-  $('#btnAddCable').onclick=()=>{ if(!sDraft) return; sDraft.cables.push(newCable()); renderCables(); };
-  $('#sBoxMark').addEventListener('input', e=>{
-    if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.mark=e.target.value; schemePreviewFill(); });
-  $('#sBoxDesc').addEventListener('input', e=>{
-    if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.desc=e.target.value; schemePreviewFill(); });
-  $('#cablesWrap').addEventListener('input', e=>{
-    const t=e.target, block=t.closest('.cable-block'); if(!block) return;
-    if (sDraft.type===1){
-      if (t.classList.contains('r-term')) sDraft.terminals[+t.dataset.ri].term=t.value;
-    } else {
-      const ci=+block.dataset.ci, c=sDraft.cables[ci];
-      if (t.classList.contains('c-mark')){ c.mark=t.value; block.querySelectorAll('.c-cable-cell').forEach(td=>td.textContent=t.value||'—'); }
-      else if (t.classList.contains('c-len')) c.len=t.value;
-      else if (t.classList.contains('r-term')) c.rows[+t.dataset.ri].term=t.value;
-      else if (t.classList.contains('r-wire')){
-        c.rows[+t.dataset.ri].wire=t.value;
-        const sw=t.closest('.wire-cell').querySelector('.sw'); if(sw) sw.style.background=wireColor(t.value);
-      }
-      else if (t.classList.contains('r-box')) c.rows[+t.dataset.ri].boxTerm=t.value;
-    }
-    schemePreviewFill();
-  });
-  $('#cablesWrap').addEventListener('click', e=>{
-    const btn=e.target.closest('button'); if(!btn) return;
-    const block=btn.closest('.cable-block');
-    if (btn.classList.contains('add-term')){
-      if (sDraft.type===1) sDraft.terminals.push({term:''});
-      else sDraft.cables[+block.dataset.ci].rows.push({term:'',wire:'',boxTerm:''});
-      renderCables();
-    } else if (btn.classList.contains('row-del')){
-      const ri=+btn.dataset.ri;
-      if (sDraft.type===1){ sDraft.terminals.splice(ri,1); if(!sDraft.terminals.length) sDraft.terminals=[{term:''}]; }
-      else { const c=sDraft.cables[+block.dataset.ci]; c.rows.splice(ri,1); if(!c.rows.length) c.rows=[{term:'',wire:'',boxTerm:''}]; }
-      renderCables();
-    } else if (btn.classList.contains('c-del')){
-      sDraft.cables.splice(+btn.dataset.ci,1);
-      if (!sDraft.cables.length) sDraft.cables=[newCable()];
-      renderCables();
-    }
-  });
-  $$('input[name="sType"]').forEach(r=>r.onchange=e=>{
-    if (!sDraft) return;
-    const t=+e.target.value;
-    const flat = sDraft.type===1
-      ? (sDraft.terminals||[]).map(x=>({term:x.term||'',wire:'',boxTerm:''}))
-      : (sDraft.cables||[]).flatMap(c=>(c.rows||[]).map(r=>({term:r.term||'',wire:r.wire||'',boxTerm:r.boxTerm||''})));
-    if (t===1){
-      sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}]};
-    } else {
-      const prev=sDraft.type>=2&&sDraft.cables&&sDraft.cables[0]?sDraft.cables[0]:null;
-      sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
-        cables:[{mark:prev?prev.mark||'', len:prev?prev.len||'',
-                 rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}]};
-    }
-    renderSchemeEditor();
-  });
-  $('#btnApplyScheme').onclick=()=>{
-    let clean;
-    if (sDraft.type===1){
-      const rows=sDraft.terminals.filter(r=>(r.term||'').trim());
-      if (!rows.length) return alert('Добавьте хотя бы одну клемму');
-      clean={type:1, terminals:rows.map(r=>({term:r.term.trim()}))};
-    } else {
-      const cables=sDraft.cables
-        .map(c=>({ mark:(c.mark||'').trim(), len:(c.len||'').trim(),
-          rows:c.rows.filter(r=>(r.term||'').trim()||(r.wire||'').trim()||(r.boxTerm||'').trim())
-                     .map(r=>({term:(r.term||'').trim(),wire:(r.wire||'').trim(),boxTerm:(r.boxTerm||'').trim()})) }))
-        .filter(c=>c.mark||c.rows.length);
-      if (!cables.length) return alert('Добавьте хотя бы один кабель с клеммой');
-      clean={type:sDraft.type, cables};
-      if (sDraft.type===3) clean.box={mark:$('#sBoxMark').value.trim(), desc:$('#sBoxDesc').value.trim()};
-    }
-    draftScheme=clean;
-    draftSchemeText=schemeToText(clean);
-    updateSchemeStatus();
-    $('#schemeModal').classList.add('hidden');
-  };
-
-  $('#viewEdit').onclick=()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); };
-  $('#viewClone').onclick=()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); };
-
-  ['fSearch','fCategory','fManufacturer'].forEach(id=>$('#'+id).addEventListener('input', renderCards));
-
-  $$('[data-close]').forEach(b=>b.onclick=e=>e.target.closest('.modal').classList.add('hidden'));
+  $$('input[name="sType"]').forEach(r=>r.addEventListener('change', onSchemeType));
+  $$('[data-close]').forEach(b=>b.addEventListener('click', e=>{
+    const m=e.target.closest('.modal'); if(m) m.classList.add('hidden');
+  }));
   $$('.modal').forEach(m=>m.addEventListener('click', e=>{ if(e.target===m) m.classList.add('hidden'); }));
+
+  ['fSearch','fCategory','fManufacturer'].forEach(id=>on('#'+id,'input',renderCards));
 
   loadCards();
 }
