@@ -261,13 +261,8 @@ window.addEventListener('unhandledrejection', function(e){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbxdigLyqyiuk6y73LKhKiRnlxn9o3E-I3WtFIqbbqqVr5ysH_3yHvkJajfUdTpHeOch/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyecSFMnsfWzUr1hfg9N_h5Xho1BUsCY3lVDXAFpRDwA644Im1cMYf5fcTXk9VQVun0/exec';
   
-// ======================================================================
-// КЛЮЧ полного удаления из корзины. Замените на свой секретный.
-// ======================================================================
-const PURGE_KEY = 'KIP-PURGE-2024';
-
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
@@ -560,12 +555,15 @@ function cardAction(e){
   else if(act==='purge'){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
     const key = prompt('Полное удаление защищено ключом.\nВведите ключ:');
-    if (key === null) return; // нажали «Отмена»
-    if (key.trim() !== PURGE_KEY){ alert('Неверный ключ. Удаление отменено.'); return; }
-    deletedCards=deletedCards.filter(x=>x.id!==id);
-    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateCounts(); renderCards(); updateFooter();
-    postToSheet({action:'purge', id}).then(()=>setTimeout(loadCards, 800));
+    if (key === null || !key.trim()) return;
+    // проверяет ключ сервер (Apps Script); локально ничего не удаляем —
+    // после перечитывания таблицы станет ясно, прошла ли проверка
+    postToSheet({action:'purge', id, key:key.trim()})
+      .then(()=>setTimeout(async ()=>{
+        await loadCards();
+        if (deletedCards.find(x=>x.id===id))
+          alert('Карточка НЕ удалена — скорее всего, ключ неверный.');
+      }, 1500));
   }
 }
 
