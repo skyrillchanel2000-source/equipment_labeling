@@ -67,6 +67,7 @@
           <span>Разделитель:</span>
           <select id="eSep">
             <option value="-">дефис «-»</option>
+            <option value=" ">пробел</option>
             <option value="/">слэш «/»</option>
             <option value="_">подчёркивание «_»</option>
             <option value="">без разделителя</option>
@@ -106,9 +107,15 @@
         <label><input type="radio" name="sType" value="2"> Клеммы + комплектный кабель</label>
         <label><input type="radio" name="sType" value="3"> Кабель из оборудования в комплектную коробку с клеммами</label>
       </div>
-      <div id="schemeExtra"></div>
-      <table class="scheme-table"><thead id="schemeHead"></thead><tbody id="schemeRows"></tbody></table>
-      <button class="icon-btn" id="btnAddTerm" data-icon="plus" data-tip="Добавить клемму"></button>
+      <div id="boxFields" class="grid2 hidden">
+        <label>Маркировка коробки<input id="sBoxMark" placeholder="например: X1"></label>
+        <label>Описание коробки<input id="sBoxDesc" placeholder="например: клеммная коробка в комплекте"></label>
+      </div>
+      <div id="cablesWrap"></div>
+      <div class="block-actions" id="addCableRow">
+        <button class="icon-btn" id="btnAddCable" data-icon="plus" data-tip="Добавить кабель — новая таблица со своим количеством клемм"></button>
+        <span class="hint">Добавить кабель</span>
+      </div>
       <h4>Предпросмотр (вставляется в Excel)</h4>
       <pre id="schemePreview"></pre>
     </div>
@@ -124,10 +131,10 @@
   <div class="modal-box small">
     <div class="modal-head"><h3>Настройки</h3><button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button></div>
     <div class="modal-body">
-      <label>URL веб-приложения Apps Script (оканчивается на /exec)
+      <label>URL веб-приложения Apps Script (по умолчанию — из кода)
         <input id="cfgUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec">
       </label>
-      <p class="hint">Если поле пустое — демо-режим (данные только в этом браузере).</p>
+      <p class="hint">URL уже зашит в app.js (константа API_URL). Это поле нужно только для временной подмены.</p>
     </div>
     <div class="modal-foot">
       <button class="btn" id="btnTestUrl">Проверить связь</button>
