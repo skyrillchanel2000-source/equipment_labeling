@@ -104,6 +104,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <header>
   <h1>Маркировки оборудования</h1>
   <div class="toolbar">
+    <a class="icon-btn" data-icon="home" data-tip="На главную" href="https://ferrumgovorov-netizen.github.io/KIP/index.html"></a>
     <button class="icon-btn" id="btnRefresh" data-icon="refresh" data-tip="Обновить данные"></button>
     <button class="icon-btn" id="btnExport" data-icon="download" data-tip="Скачать CSV для Excel"></button>
     <button class="icon-btn primary" id="btnAdd" data-icon="plus" data-tip="Добавить маркировку"></button>
@@ -113,7 +114,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <div id="modeBanner"></div>
 
 <section class="filters">
-  <input id="fSearch" type="text" placeholder="Поиск: разделители и регистр не важны…">
+  <input id="fSearch" type="text" placeholder="Поиск: точная маркировка или части маркировки через %">
   <select id="fCategory"><option value="">Все категории</option></select>
   <select id="fManufacturer"><option value="">Все производители</option></select>
 </section>
@@ -256,7 +257,17 @@ const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
 const nowStr = () => new Date().toLocaleString('ru-RU');
 // нормализация для поиска: только буквы и цифры, без разделителей, в нижнем регистре
 const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
-
+// Поиск: без % — точь-в-точь (как в таблице, регистр не важен);
+// с % — «%» и пробел означают «любые символы между кусками»
+function searchMatch(hay, q){
+  if (q.includes('%')){
+    const toks = q.toLowerCase().split(/[%\s]+/).filter(Boolean).map(norm);
+    if (!toks.length) return true;
+    return new RegExp(toks.join('.*')).test(norm(hay));
+  }
+  return hay.toLowerCase().includes(q.toLowerCase());
+}
+  
 // ================= Плавающая подсказка (не выходит за экран) =================
 const tipEl = document.createElement('div'); tipEl.id = 'tooltip'; document.body.appendChild(tipEl);
 function showTip(t){
@@ -292,6 +303,7 @@ const ICONS = {
   download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   refresh:'<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   x:'<path d="M18 6L6 18M6 6l12 12"/>',
+  home:'<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
@@ -413,14 +425,13 @@ function renderFilters(){
 function renderCards(){
   const q=$('#fSearch').value.trim();
   const cat=$('#fCategory').value, man=$('#fManufacturer').value;
-  const qn=norm(q);
   const list=cards.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
-    if (qn){
+    if (q){
       const hay=[c.marking,c.model,c.category,c.manufacturer,c.comment,
         ...(c.parts||[]).flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
-      if (!norm(hay).includes(qn)) return false;
+      if (!searchMatch(hay, q)) return false;
     }
     return true;
   });
