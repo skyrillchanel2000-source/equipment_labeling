@@ -262,6 +262,11 @@ window.addEventListener('unhandledrejection', function(e){
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbxdigLyqyiuk6y73LKhKiRnlxn9o3E-I3WtFIqbbqqVr5ysH_3yHvkJajfUdTpHeOch/exec';
+  
+// ======================================================================
+// КЛЮЧ полного удаления из корзины. Замените на свой секретный.
+// ======================================================================
+const PURGE_KEY = 'KIP-PURGE-2024';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -554,6 +559,9 @@ function cardAction(e){
   }
   else if(act==='purge'){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
+    const key = prompt('Полное удаление защищено ключом.\nВведите ключ:');
+    if (key === null) return; // нажали «Отмена»
+    if (key.trim() !== PURGE_KEY){ alert('Неверный ключ. Удаление отменено.'); return; }
     deletedCards=deletedCards.filter(x=>x.id!==id);
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
     updateCounts(); renderCards(); updateFooter();
@@ -1103,6 +1111,12 @@ function init(){
   on('#viewEdit','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); });
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
   on('#cards','click',cardAction);
+    $$('.tab').forEach(t=>t.addEventListener('click',()=>{
+    currentTab=t.dataset.tab;
+    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
+    hideTip();
+    renderCards();
+  }));
 
   on('#eCategory','input',updateEditDatalists);
   on('#eManufacturer','input',updateEditDatalists);
