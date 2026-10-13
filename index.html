@@ -43,7 +43,7 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 #viewBody tr.hl td{background:#fef3c7}
 .modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;justify-content:center;padding:36px 14px;z-index:20;overflow:auto}
 .hidden{display:none!important}
-.modal-box{background:#fff;border-radius:14px;max-width:820px;width:100%;height:max-content}
+.modal-box{background:#fff;border-radius:14px;max-width:860px;width:100%;height:max-content}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
 .modal-head h3{margin:0;font-size:17px}
 .modal-body{padding:16px 18px}
@@ -54,8 +54,7 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.parts-toolbar select{width:auto}
-.part-row{display:grid;grid-template-columns:26px 150px 1fr 110px 100px 40px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:26px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .p-part.used{border-color:#16a34a;background:#f0fdf4}
 .marking-preview{margin-top:8px;font-size:16px;font-weight:600}
@@ -157,14 +156,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
       <fieldset>
         <legend>Части маркировки</legend>
         <div class="parts-toolbar">
-          <span>Разделитель:</span>
-          <select id="eSep">
-            <option value="-">дефис «-»</option>
-            <option value=" ">пробел</option>
-            <option value="/">слэш «/»</option>
-            <option value="_">подчёркивание «_»</option>
-            <option value="">без разделителя</option>
-          </select>
+          <span class="hint">У каждой части свой разделитель — селектор в её строке (соединяет её со следующей частью)</span>
           <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
         </div>
         <div id="partsRows"></div>
@@ -226,7 +218,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <datalist id="dlWires"></datalist>
 
 <script>
-/* Дозорный: работает ДО основного кода и покажет ошибку, даже если основной скрипт упал при запуске */
+/* Дозорный: покажет ошибку, даже если основной скрипт упадёт */
 window.addEventListener('error', function(e){
   var b = document.getElementById('modeBanner');
   if (b){
@@ -239,22 +231,13 @@ window.addEventListener('unhandledrejection', function(e){
   var m = e.reason && e.reason.message ? e.reason.message : String(e.reason);
   if (b){ b.textContent = 'Ошибка сети: ' + m; b.className = 'warn'; }
 });
-setTimeout(function(){
-  if (!window.__appOK){
-    var b = document.getElementById('modeBanner');
-    if (b && !b.textContent){
-      b.textContent = 'Основной скрипт не запустился. Нажмите F12 → вкладка Console и пришлите красный текст ошибки.';
-      b.className = 'warn';
-    }
-  }
-}, 2000);
 </script>
 
 <script>
 // ======================================================================
-// ССЫЛКА НА GOOGLE-ТАБЛИЦУ. Меняется только здесь.
+// ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbwyWiRSZNokcJmr3SX8jXyw87Tn5M7SlOBwtcA5qmmZWubmckzNTz42rYCcjZu0yNBP/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby-q-8Y4x-RjdL0LsCdOznYV5yub8tPeG9Hzo3xm83tNqtaeyumh1mGfZ-xWmZUxZOk/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -294,6 +277,11 @@ const unitOptions = sel => UNITS.map(u =>
 const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
+// разделители для каждой части (свой в каждой строке)
+const SEP_OPTIONS = [['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['_','подчёркивание «_»'],['','(нет)']];
+const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
+  `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
+
 // ================= Состояние =================
 const LS_CARDS='mk_cards_v1';
 let cards=[], partsMap=new Map();
@@ -321,37 +309,67 @@ function schemeConnCount(s){
 function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v4 · скрипт: OK · карточек: ' + cards.length;
+  if (bi) bi.textContent = 'v5 · скрипт: OK · карточек: ' + cards.length;
 }
 async function loadCards(){
-  let raw;
+  let raw=null, msg='', cls='';
+  const local=JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
   try{
     const sep = API_URL.includes('?') ? '&' : '?';
     raw = await (await fetch(API_URL+sep+'action=list')).json();
     if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
     localStorage.setItem(LS_CARDS, JSON.stringify(raw));
-    setBanner('');
   }catch(e){
-    raw = JSON.parse(localStorage.getItem(LS_CARDS)||'[]');
-    setBanner('Не удалось получить данные из Google Таблицы ('+e.message+') — показана локальная копия.','warn');
+    msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные. Проверьте, что у развертывания Apps Script доступ «Все».';
+    cls='warn';
   }
-  cards = raw.map(c => c.scheme ? Object.assign({}, c, {scheme:migrateScheme(c.scheme)}) : c);
+  cards=(raw||local).map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c);
+  if (raw){
+    // контроль записи: карточки, которые есть локально, но их нет в таблице
+    const ids=new Set(cards.map(c=>c.id));
+    const stuck=local.filter(c=>!ids.has(c.id));
+    if (stuck.length){
+      cards=stuck.map(c=>c.scheme?Object.assign({},c,{scheme:migrateScheme(c.scheme)}):c).concat(cards);
+      msg='Внимание: '+stuck.length+' карточк(а/и) отсутствуют в Google Таблице — сохранение не прошло. Откройте карточку и сохраните ещё раз (проверьте доступ развертывания «Все»).';
+      cls='warn';
+    }
+  }
+  setBanner(msg, cls);
   fillDatalists(); renderFilters(); renderCards(); updateFooter();
 }
+
+// POST в no-cors режиме: запрос гарантированно доходит до Apps Script (обход CORS)
+function postToSheet(payload){
+  return fetch(API_URL, {
+    method:'POST', mode:'no-cors',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload)
+  });
+}
 async function persistCard(card){
-  const i = cards.findIndex(c => c.id === card.id);
-  if (i >= 0) cards[i] = card; else cards.unshift(card);
+  const i=cards.findIndex(c=>c.id===card.id);
+  if(i>=0) cards[i]=card; else cards.unshift(card);
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-  try{ await fetch(API_URL, { method:'POST', body: JSON.stringify({action:'save', card}) }); }
-  catch(e){ alert('Не удалось записать в Google Таблицу. Карточка сохранена локально.'); }
+  try{
+    await postToSheet({action:'save', card});
+    setTimeout(loadCards, 800); // перечитаем таблицу — подтвердим запись
+  }catch(e){
+    alert('Не удалось отправить данные в Google Таблицу (нет сети?). Карточка сохранена локально — нажмите «Обновить» позже.');
+  }
 }
 
 // ================= Список карточек =================
 function markingHTML(card){
-  const sep = card.sep ?? '-';
-  return (card.parts||[]).map((p,i) =>
-    `<span class="part pc${i%8}" data-pidx="${i}" data-tip="${esc(partTip(p))}">${esc(p.part)}</span>`
-  ).join(esc(sep));
+  const fb = card.sep ?? '-';
+  let html='', pending='';
+  (card.parts||[]).forEach((p,i)=>{
+    const part=(p.part||'').trim();
+    if(!part) return;
+    html += esc(pending) +
+      `<span class="part pc${i%8}" data-pidx="${i}" data-tip="${esc(partTip(p))}">${esc(part)}</span>`;
+    pending = (p.sepAfter !== undefined && p.sepAfter !== null) ? p.sepAfter : fb;
+  });
+  return html || '<i>—</i>';
 }
 function renderFilters(){
   const cats=[...new Set(cards.map(c=>c.category).filter(Boolean))].sort();
@@ -386,6 +404,23 @@ function renderCards(){
         <button class="icon-btn danger" data-tip="Удалить" data-act="del" data-id="${c.id}">${icon('trash')}</button>
       </div>
     </div>`).join('');
+}
+
+// ================= Действия на карточках =================
+function cardAction(e){
+  const b=e.target.closest('button[data-act]'); if(!b) return;
+  const c=cards.find(x=>x.id===b.dataset.id); if(!c) return;
+  const act=b.dataset.act;
+  if(act==='view'){ openView(c.id); }
+  else if(act==='clone'){ openEdit(c,'clone'); }
+  else if(act==='edit'){ openEdit(c,'edit'); }
+  else if(act==='del'){
+    if(!confirm('Удалить маркировку '+c.id+'?')) return;
+    cards=cards.filter(x=>x.id!==c.id);
+    localStorage.setItem(LS_CARDS, JSON.stringify(cards));
+    postToSheet({action:'delete', id:c.id}).then(()=>setTimeout(loadCards, 800));
+    fillDatalists(); renderFilters(); renderCards(); updateFooter();
+  }
 }
 
 // ================= Просмотр =================
@@ -424,11 +459,12 @@ function openView(id){
 }
 
 // ================= Создание / редактирование =================
-function renderPartRows(parts){
+function renderPartRows(parts, defSep){
   $('#partsRows').innerHTML=parts.map(p=>`
     <div class="part-row">
       <span class="idx"></span>
       <input class="p-part" list="dlParts" value="${esc(p.part||'')}" placeholder="часть">
+      <select class="p-sep" title="Разделитель после этой части">${sepOptions(p.sepAfter ?? defSep)}</select>
       <input class="p-desc" value="${esc(p.desc||'')}" placeholder="описание части">
       <input class="p-char" value="${esc(p.char||'')}" placeholder="характеристика">
       <select class="p-unit">${unitOptions(p.unit)}</select>
@@ -447,17 +483,21 @@ function refreshPartStyles(){
       inp.title='Уже встречалась'+(info?': '+info:'');
     } else inp.removeAttribute('title');
   });
-  $('#ePreview').innerHTML=$$('#partsRows .part-row').map((r,i)=>{
+  let html='', pending='';
+  $$('#partsRows .part-row').forEach((r,i)=>{
     const v=r.querySelector('.p-part').value.trim();
-    if (!v) return '';
-    const p={desc:r.querySelector('.p-desc').value, char:r.querySelector('.p-char').value, unit:r.querySelector('.p-unit').value};
-    return `<span class="part pc${i%8}" data-tip="${esc(partTip(p))}">${esc(v)}</span>`;
-  }).join(esc($('#eSep').value)) || '<i>пусто</i>';
+    if(!v) return;
+    const meta={desc:r.querySelector('.p-desc').value, char:r.querySelector('.p-char').value, unit:r.querySelector('.p-unit').value};
+    html += esc(pending) + `<span class="part pc${i%8}" data-tip="${esc(partTip(meta))}">${esc(v)}</span>`;
+    pending = r.querySelector('.p-sep').value;
+  });
+  $('#ePreview').innerHTML = html || '<i>пусто</i>';
 }
 function addPartRow(){
   $('#partsRows').insertAdjacentHTML('beforeend', `
     <div class="part-row"><span class="idx"></span>
     <input class="p-part" list="dlParts" placeholder="часть">
+    <select class="p-sep" title="Разделитель после этой части">${sepOptions('-')}</select>
     <input class="p-desc" placeholder="описание части">
     <input class="p-char" placeholder="характеристика">
     <select class="p-unit">${unitOptions('')}</select>
@@ -477,6 +517,10 @@ function partDelete(e){
   if (!e.target.closest('.p-del')) return;
   e.target.closest('.part-row').remove(); renumberParts(); refreshPartStyles();
 }
+function partsChange(e){
+  if (e.target.classList.contains('p-sep') || e.target.classList.contains('p-unit')) refreshPartStyles();
+  else partAutofill(e);
+}
 function openEdit(src, mode){
   editId=null; editBaseOn='';
   let base={category:'',manufacturer:'',model:'',sep:'-',
@@ -493,28 +537,33 @@ function openEdit(src, mode){
   draftScheme=base.scheme ? JSON.parse(JSON.stringify(base.scheme)) : null;
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
-  $('#eModel').value=base.model||''; $('#eSep').value=base.sep??'-'; $('#eComment').value=base.comment||'';
-  renderPartRows(base.parts); updateSchemeStatus();
+  $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
+  renderPartRows(base.parts, base.sep); updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
 }
 function collectCard(){
-  const parts=$$('#partsRows .part-row').map(r=>({
+  const rows=$$('#partsRows .part-row').map(r=>({
     part:r.querySelector('.p-part').value.trim(),
     desc:r.querySelector('.p-desc').value.trim(),
     char:r.querySelector('.p-char').value.trim(),
-    unit:r.querySelector('.p-unit').value
-  })).filter(p=>p.part);
+    unit:r.querySelector('.p-unit').value,
+    sepAfter:r.querySelector('.p-sep').value
+  }));
+  const parts=rows.filter(p=>p.part);
   if (!parts.length){ alert('Добавьте хотя бы одну часть маркировки'); return null; }
   const card={
     id:editId||uid(),
     date:editId?(cards.find(c=>c.id===editId)?.date||nowStr()):nowStr(),
     category:$('#eCategory').value.trim(), manufacturer:$('#eManufacturer').value.trim(),
-    model:$('#eModel').value.trim(), sep:$('#eSep').value, parts,
+    model:$('#eModel').value.trim(), sep:(parts[0]&&parts[0].sepAfter)||'-', parts,
     comment:$('#eComment').value.trim(),
     scheme:draftScheme, schemeType:draftScheme?draftScheme.type:0,
     schemeText:draftSchemeText, basedOn:editBaseOn
   };
-  card.marking=parts.map(p=>p.part).join(card.sep);
+  // сборка маркировки: каждая часть + свой разделитель после неё
+  let marking='';
+  parts.forEach(p=>{ marking += (marking ? p.sepAfter : '') + p.part; });
+  card.marking=marking;
   return card;
 }
 async function saveCard(){
@@ -615,9 +664,9 @@ function onSchemeType(e){
   if (t===1){
     sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}]};
   } else {
-    const prev=sDraft.type>=2&&sDraft.cables&&sDraft.cables[0]?sDraft.cables[0]:null;
+    const prev=(sDraft.type>=2 && sDraft.cables && sDraft.cables[0]) ? sDraft.cables[0] : null;
     sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
-            cables:[{mark:(prev&&prev.mark)||'', len:(prev&&prev.len)||'',
+      cables:[{mark:(prev&&prev.mark)||'', len:(prev&&prev.len)||'',
                rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}]};
   }
   renderSchemeEditor();
@@ -823,10 +872,10 @@ function init(){
   on('#btnApplyScheme','click',applyScheme);
   on('#viewEdit','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); });
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
+  on('#cards','click',cardAction);
 
-  on('#eSep','change',refreshPartStyles);
   on('#partsRows','input',refreshPartStyles);
-  on('#partsRows','change',partAutofill);
+  on('#partsRows','change',partsChange);
   on('#partsRows','click',partDelete);
 
   on('#cablesWrap','input',schemeInput);
@@ -845,6 +894,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v4</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v5</footer>
 </body>
 </html>
