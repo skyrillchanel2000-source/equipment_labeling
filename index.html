@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/png" href="favicon.png"/>
 <title>Маркировки оборудования</title>
 <style>
 :root{--bg:#f2f4f8;--card:#fff;--ink:#1a2233;--mut:#68738a;--acc:#2563eb;--line:#dde3ee;--danger:#d33}
@@ -256,6 +256,15 @@ window.addEventListener('unhandledrejection', function(e){
   var m = e.reason && e.reason.message ? e.reason.message : String(e.reason);
   if (b){ b.textContent = 'Ошибка сети: ' + m; b.className = 'warn'; }
 });
+setTimeout(function(){
+  if (!window.__appOK){
+    var b = document.getElementById('modeBanner');
+    if (b && !b.textContent){
+      b.textContent = 'Основной скрипт не запустился. Нажмите F12 → Console и пришлите красный текст ошибки.';
+      b.className = 'warn';
+    }
+  }
+}, 2500);
 </script>
 
 <script>
@@ -263,7 +272,7 @@ window.addEventListener('unhandledrejection', function(e){
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbyecSFMnsfWzUr1hfg9N_h5Xho1BUsCY3lVDXAFpRDwA644Im1cMYf5fcTXk9VQVun0/exec';
-  
+
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
@@ -274,6 +283,7 @@ const uid = () => 'MK-' + Date.now().toString(36).toUpperCase() + '-' +
 const nowStr = () => new Date().toLocaleString('ru-RU');
 const norm = s => String(s || '').toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
 
+// Поиск: без % — точь-в-точь (регистр не важен); с % — «%» и пробел = любые символы
 function searchMatch(hay, q){
   if (q.includes('%')){
     const toks = q.toLowerCase().split(/[%\s]+/).filter(Boolean).map(norm);
@@ -403,7 +413,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v9 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v12 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
   let raw=null, rawDel=null, msg='', cls='';
@@ -485,7 +495,7 @@ function trashCardHTML(c){
       <div class="card-actions">
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${c.id}">${icon('eye')}</button>
         <button class="icon-btn" data-tip="Восстановить на лист «Маркировки»" data-act="restore" data-id="${c.id}">${icon('undo')}</button>
-        <button class="icon-btn danger" data-tip="Удалить навсегда" data-act="purge" data-id="${c.id}">${icon('trash')}</button>
+        <button class="icon-btn danger" data-tip="Удалить навсегда (по ключу)" data-act="purge" data-id="${c.id}">${icon('trash')}</button>
       </div>
     </div>`;
 }
@@ -557,7 +567,7 @@ function cardAction(e){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
     const key = prompt('Полное удаление защищено ключом.\nВведите ключ:');
     if (key === null || !key.trim()) return;
-    // проверяет ключ сервер (Apps Script); локально ничего не удаляем —
+    // ключ проверяет сервер (Apps Script); локально ничего не удаляем —
     // после перечитывания таблицы станет ясно, прошла ли проверка
     postToSheet({action:'purge', id, key:key.trim()})
       .then(()=>setTimeout(async ()=>{
@@ -1110,7 +1120,8 @@ function init(){
   on('#viewEdit','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'edit'); });
   on('#viewClone','click',()=>{ const c=cards.find(x=>x.id===currentViewId); $('#viewModal').classList.add('hidden'); openEdit(c,'clone'); });
   on('#cards','click',cardAction);
-    $$('.tab').forEach(t=>t.addEventListener('click',()=>{
+
+  $$('.tab').forEach(t=>t.addEventListener('click',()=>{
     currentTab=t.dataset.tab;
     $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
     hideTip();
@@ -1142,6 +1153,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v9</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v12</footer>
 </body>
 </html>
