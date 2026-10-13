@@ -617,7 +617,7 @@ function onSchemeType(e){
   } else {
     const prev=sDraft.type>=2&&sDraft.cables&&sDraft.cables[0]?sDraft.cables[0]:null;
     sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
-      cables:[{mark:prev?prev.mark||'', len:prev?prev.len||'',
+            cables:[{mark:(prev&&prev.mark)||'', len:(prev&&prev.len)||'',
                rows:flat.length?flat:[{term:'',wire:'',boxTerm:''}]}]};
   }
   renderSchemeEditor();
