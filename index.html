@@ -12,7 +12,6 @@
   <div class="toolbar">
     <button class="icon-btn" id="btnRefresh" data-icon="refresh" data-tip="Обновить данные"></button>
     <button class="icon-btn" id="btnExport" data-icon="download" data-tip="Скачать CSV для Excel"></button>
-    <button class="icon-btn" id="btnSettings" data-icon="gear" data-tip="Подключение к Google Таблице"></button>
     <button class="icon-btn primary" id="btnAdd" data-icon="plus" data-tip="Добавить маркировку"></button>
   </div>
 </header>
@@ -126,23 +125,6 @@
   </div>
 </div>
 
-<!-- Настройки -->
-<div class="modal hidden" id="settingsModal">
-  <div class="modal-box small">
-    <div class="modal-head"><h3>Настройки</h3><button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button></div>
-    <div class="modal-body">
-      <label>URL веб-приложения Apps Script (по умолчанию — из кода)
-        <input id="cfgUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec">
-      </label>
-      <p class="hint">URL уже зашит в app.js (константа API_URL). Это поле нужно только для временной подмены.</p>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" id="btnTestUrl">Проверить связь</button>
-      <button class="btn primary" id="btnSaveCfg">Сохранить</button>
-    </div>
-  </div>
-</div>
-
 <datalist id="dlCategories"></datalist>
 <datalist id="dlManufacturers"></datalist>
 <datalist id="dlParts"></datalist>
@@ -150,5 +132,6 @@
 <datalist id="dlWires"></datalist>
 
 <script src="app.js"></script>
+<footer style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v3</footer>
 </body>
 </html>
