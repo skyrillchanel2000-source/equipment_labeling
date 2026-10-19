@@ -370,7 +370,7 @@ const unitOptions = sel => UNITS.map(u =>
 const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
-const SEP_OPTIONS = [['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['_','подчёркивание «_»'],['','(нет)']];
+const SEP_OPTIONS = [['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['_','подчёркивание «_»'],['.','точка «.»'],[',','запятая «,»'],['','(нет)']];
 const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
   `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
 
