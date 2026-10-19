@@ -274,7 +274,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbwcoPnt2J-vsbMx0gKKxfu4l40xzIxcHF8vuOb86ToM2ZWBeGaCuhyth9IXACgj8hBx/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxGRZP3yYGJT5XgH9AamV4ffvDzA2vdpVxm9_Z88yU4WsuX9mlFFitG2GMbmvASggL7/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -394,8 +394,12 @@ function buildMarking(card){
   let m='';
   parts.forEach((p,i)=>{
     m += p.part.trim();
+    const sep = (p.sepAfter !== undefined && p.sepAfter !== null) ? p.sepAfter : fb;
     if (i < parts.length-1){
-      m += (p.sepAfter !== undefined && p.sepAfter !== null) ? p.sepAfter : fb;
+      m += sep;
+    } else if (sep === ')'){
+      // исключение: закрывающая скобка после последней части сохраняется
+      m += sep;
     }
   });
   return m;
@@ -427,7 +431,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v13 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v14 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
   if (loading){ needReload=true; return; }
@@ -503,6 +507,7 @@ function markingHTML(card){
       `<span class="part pc${i%8}" data-pidx="${i}" data-tip="${esc(partTip(p))}">${esc(part)}</span>`;
     pending = (p.sepAfter !== undefined && p.sepAfter !== null) ? p.sepAfter : fb;
   });
+    if (pending === ')') html += esc(')'); // закрывающая скобка после последней части
   return html || '<i>—</i>';
 }
 function renderFilters(){
@@ -700,6 +705,7 @@ function refreshPartStyles(){
     html += esc(pending) + `<span class="part pc${i%8}" data-tip="${esc(partTip(meta))}">${esc(v)}</span>`;
     pending = r.querySelector('.p-sep').value;
   });
+    if (pending === ')') html += esc(')'); // закрывающая скобка после последней части
   $('#ePreview').innerHTML = html || '<i>пусто</i>';
 }
 function addPartRow(){
@@ -1174,6 +1180,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v13</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v14</footer>
 </body>
 </html>
