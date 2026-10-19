@@ -363,7 +363,7 @@ const WIRE_COLORS = [
 const wireColor = name => { if(!name) return '#555'; const n = name.toLowerCase();
   const w = WIRE_COLORS.find(([v]) => n.includes(v)); return w ? w[1] : '#555'; };
 
-const UNITS = ['','Па','кПа','МПа','бар','мм вод. ст.','%','°C','мм','см','м','м²','м³',
+const UNITS = ['','Па','кПа','МПа','бар','мм вод. ст.','%','°C','мм','см','дм','м','м²','м³',
   'л/с','м³/ч','В','мВ','А','мА','Вт','кВт','Гц','об/мин','кг','с','ч'];
 const unitOptions = sel => UNITS.map(u =>
   `<option value="${esc(u)}"${u===(sel||'')?' selected':''}>${u?esc(u):'—'}</option>`).join('');
