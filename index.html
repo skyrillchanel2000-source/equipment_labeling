@@ -68,11 +68,13 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.part-row{display:grid;grid-template-columns:26px 76px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:32px 26px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
-.part-row .p-move{display:inline-flex;gap:2px;flex-direction:column}
-.part-row .p-move .icon-btn{min-width:30px;height:20px;padding:0}
-.part-row .p-move .icon-btn svg{width:15px;height:15px}
+.part-row .p-grip{cursor:grab;color:var(--mut);display:inline-flex;align-items:center;justify-content:center}
+.part-row .p-grip:hover{color:var(--acc)}
+.part-row .p-grip svg{width:16px;height:16px}
+.part-row.dragging{opacity:.45;border:1px dashed var(--acc);border-radius:8px}
+.part-row.drag-over{border-top:2px solid var(--acc)}
 .p-part.used{border-color:#16a34a;background:#f0fdf4}
 .marking-preview{margin-top:8px;font-size:16px;font-weight:600}
 .scheme-row{display:flex;align-items:center;gap:10px;margin:12px 0}
@@ -355,6 +357,7 @@ const ICONS = {
   undo:'<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
   up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
   down:'<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  grip:'<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
@@ -682,10 +685,7 @@ function renderPartRows(parts, defSep){
   $('#partsRows').innerHTML=parts.map((p,i)=>`
     <div class="part-row" data-pi="${i}">
       <span class="idx"></span>
-      <span class="p-move">
-        <button class="icon-btn p-up" data-tip="Переместить вверх" ${i===0?' disabled':''}>${icon('up')}</button>
-        <button class="icon-btn p-down" data-tip="Переместить вниз" ${i===parts.length-1?' disabled':''}>${icon('down')}</button>
-      </span>
+      <span class="p-grip" draggable="true" data-tip="Зажмите и перетащите, чтобы поменять порядок части">${icon('grip')}</span>
       <input class="p-part" list="dlParts" value="${esc(p.part||'')}" placeholder="часть">
       <select class="p-sep" title="Разделитель после этой части">${sepOptions(p.sepAfter ?? defSep)}</select>
       <input class="p-desc" value="${esc(p.desc||'')}" placeholder="описание части">
@@ -698,11 +698,6 @@ function renderPartRows(parts, defSep){
 function renumberParts(){
   const rows=$$('#partsRows .part-row');
   rows.forEach((s,i)=>{ s.dataset.pi=i; s.querySelector('.idx').textContent=i+1; });
-  rows.forEach((r,i)=>{
-    const up=r.querySelector('.p-up'), down=r.querySelector('.p-down');
-    if(up) up.disabled = i===0;
-    if(down) down.disabled = i===rows.length-1;
-  });
 }
 function refreshPartStyles(){
   $$('#partsRows .part-row').forEach(r=>{
@@ -728,10 +723,7 @@ function refreshPartStyles(){
 function addPartRow(){
   $('#partsRows').insertAdjacentHTML('beforeend', `
     <div class="part-row" data-pi="${$('#partsRows').children.length}"><span class="idx"></span>
-    <span class="p-move">
-      <button class="icon-btn p-up" data-tip="Переместить вверх">${icon('up')}</button>
-      <button class="icon-btn p-down" data-tip="Переместить вниз" disabled>${icon('down')}</button>
-    </span>
+    <span class="p-grip" draggable="true" data-tip="Зажмите и перетащите, чтобы поменять порядок части">${icon('grip')}</span>
     <input class="p-part" list="dlParts" placeholder="часть">
     <select class="p-sep" title="Разделитель после этой части">${sepOptions('-')}</select>
     <input class="p-desc" placeholder="описание части">
@@ -740,14 +732,36 @@ function addPartRow(){
     <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button></div>`);
   renumberParts();
 }
-function partMove(e){
-  const b=e.target.closest('.p-up,.p-down'); if(!b) return;
-  const row=b.closest('.part-row'); if(!row) return;
-  const wrap=$('#partsRows');
-  const isUp=b.classList.contains('p-up');
-  if(isUp && row.previousElementSibling) wrap.insertBefore(row, row.previousElementSibling);
-  else if(!isUp && row.nextElementSibling) wrap.insertBefore(row.nextElementSibling, row);
+let dragRow=null, dragOverRow=null;
+function partsDragStart(e){
+  const grip=e.target.closest('.p-grip'); if(!grip) return;
+  const row=grip.closest('.part-row'); if(!row) return;
+  dragRow=row; row.classList.add('dragging');
+  e.dataTransfer.effectAllowed='move';
+  hideTip();
+}
+function partsDragOver(e){
+  const row=e.target.closest('.part-row');
+  if(!row || row===dragRow) return;
+  e.preventDefault(); e.dataTransfer.dropEffect='move';
+  if(dragOverRow) dragOverRow.classList.remove('drag-over');
+  dragOverRow=row; row.classList.add('drag-over');
+}
+function partsDrop(e){
+  e.preventDefault();
+  const target=dragOverRow||e.target.closest('.part-row');
+  if(dragRow && target && target!==dragRow){
+    const wrap=$('#partsRows');
+    const all=[...wrap.children];
+    if(all.indexOf(dragRow) < all.indexOf(target)) wrap.insertBefore(dragRow, target.nextElementSibling);
+    else wrap.insertBefore(dragRow, target);
+  }
   renumberParts(); refreshPartStyles();
+}
+function partsDragEnd(){
+  if(dragRow) dragRow.classList.remove('dragging');
+  if(dragOverRow) dragOverRow.classList.remove('drag-over');
+  dragRow=null; dragOverRow=null;
 }
 function partAutofill(e){
   if (!e.target.classList.contains('p-part')) return;
@@ -1190,7 +1204,12 @@ function init(){
 
   on('#partsRows','input',refreshPartStyles);
   on('#partsRows','change',partsChange);
-  on('#partsRows','click',e=>{ partMove(e); partDelete(e); });
+  on('#partsRows','click',partDelete);
+  on('#partsRows','dragstart',partsDragStart);
+  on('#partsRows','dragover',partsDragOver);
+  on('#partsRows','dragleave',e=>{ if(e.target.closest('.drag-over')) e.target.closest('.drag-over').classList.remove('drag-over'); });
+  on('#partsRows','drop',partsDrop);
+  on('#partsRows','dragend',partsDragEnd);
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
