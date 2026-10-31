@@ -70,11 +70,13 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .part-row{display:grid;grid-template-columns:32px 26px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
-.part-row .p-grip{cursor:grab;color:var(--mut);display:inline-flex;align-items:center;justify-content:center}
+.part-row .p-grip{cursor:grab;color:var(--mut);display:inline-flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
 .part-row .p-grip:hover{color:var(--acc)}
+.part-row .p-grip:active{cursor:grabbing}
 .part-row .p-grip svg{width:16px;height:16px}
-.part-row.dragging{opacity:.45;border:1px dashed var(--acc);border-radius:8px}
-.part-row.drag-over{border-top:2px solid var(--acc)}
+.part-row.dragging{opacity:0;pointer-events:none}
+.part-row.drag-ghost{position:fixed;z-index:80;margin:0;background:#fff;border:1px solid var(--acc);border-radius:8px;box-shadow:0 14px 30px rgba(15,23,42,.22);pointer-events:none;opacity:.97;transform:scale(1.015)}
+body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
 .p-part.used{border-color:#16a34a;background:#f0fdf4}
 .marking-preview{margin-top:8px;font-size:16px;font-weight:600}
 .scheme-row{display:flex;align-items:center;gap:10px;margin:12px 0}
@@ -685,7 +687,7 @@ function renderPartRows(parts, defSep){
   $('#partsRows').innerHTML=parts.map((p,i)=>`
     <div class="part-row" data-pi="${i}">
       <span class="idx"></span>
-      <span class="p-grip" draggable="true" data-tip="Зажмите и перетащите, чтобы поменять порядок части">${icon('grip')}</span>
+      <span class="p-grip" data-tip="Зажмите и потяните — строки плавно сдвинутся">${icon('grip')}</span>
       <input class="p-part" list="dlParts" value="${esc(p.part||'')}" placeholder="часть">
       <select class="p-sep" title="Разделитель после этой части">${sepOptions(p.sepAfter ?? defSep)}</select>
       <input class="p-desc" value="${esc(p.desc||'')}" placeholder="описание части">
@@ -723,7 +725,7 @@ function refreshPartStyles(){
 function addPartRow(){
   $('#partsRows').insertAdjacentHTML('beforeend', `
     <div class="part-row" data-pi="${$('#partsRows').children.length}"><span class="idx"></span>
-    <span class="p-grip" draggable="true" data-tip="Зажмите и перетащите, чтобы поменять порядок части">${icon('grip')}</span>
+    <span class="p-grip" data-tip="Зажмите и потяните — строки плавно сдвинутся">${icon('grip')}</span>
     <input class="p-part" list="dlParts" placeholder="часть">
     <select class="p-sep" title="Разделитель после этой части">${sepOptions('-')}</select>
     <input class="p-desc" placeholder="описание части">
@@ -732,36 +734,115 @@ function addPartRow(){
     <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button></div>`);
   renumberParts();
 }
-let dragRow=null, dragOverRow=null;
-function partsDragStart(e){
-  const grip=e.target.closest('.p-grip'); if(!grip) return;
-  const row=grip.closest('.part-row'); if(!row) return;
-  dragRow=row; row.classList.add('dragging');
-  e.dataTransfer.effectAllowed='move';
+// ===== Перетаскивание строк со плавным сдвигом (FLIP) =====
+let pDrag=null;
+
+function ghostMove(x,y){
+  if (!pDrag || !pDrag.clone) return;
+  pDrag.clone.style.left=(x-pDrag.offX)+'px';
+  pDrag.clone.style.top =(y-pDrag.offY)+'px';
+}
+function flipRows(wrap, skip, mutate){
+  const rows=[...wrap.querySelectorAll('.part-row')].filter(el=>el!==skip);
+  const tops=new Map(rows.map(el=>[el, el.offsetTop]));
+  mutate();
+  rows.forEach(el=>{
+    const d=tops.get(el)-el.offsetTop;
+    if (!d) return;
+    if (el.__flip){ try{ el.__flip.cancel(); }catch(e){} }
+    el.__flip=el.animate(
+      [{transform:'translateY('+d+'px)'},{transform:'translateY(0)'}],
+      {duration:220, easing:'cubic-bezier(.2,.7,.3,1)'}
+    );
+  });
+}
+function beginRowDrag(){
+  const row=pDrag.row, r=row.getBoundingClientRect();
+  const clone=row.cloneNode(true);
+  const from=row.querySelectorAll('input,select,textarea');
+  const to=clone.querySelectorAll('input,select,textarea');
+  from.forEach((el,i)=>{ if (to[i]) to[i].value=el.value; });
+  clone.classList.add('drag-ghost');
+  clone.style.width=r.width+'px';
+  clone.style.height=r.height+'px';
+  document.body.appendChild(clone);
+  pDrag.clone=clone;
+  ghostMove(pDrag.x0, pDrag.y0);
+  row.classList.add('dragging');
+  document.body.classList.add('row-sorting');
   hideTip();
 }
-function partsDragOver(e){
-  const row=e.target.closest('.part-row');
-  if(!row || row===dragRow) return;
-  e.preventDefault(); e.dataTransfer.dropEffect='move';
-  if(dragOverRow) dragOverRow.classList.remove('drag-over');
-  dragOverRow=row; row.classList.add('drag-over');
+function dragAutoScroll(y){
+  const host=document.getElementById('editModal');
+  if (!host) return;
+  const r=host.getBoundingClientRect(), edge=52;
+  if (y<r.top+edge) host.scrollTop-=Math.ceil((r.top+edge-y)/2);
+  else if (y>r.bottom-edge) host.scrollTop+=Math.ceil((y-(r.bottom-edge))/2);
 }
-function partsDrop(e){
-  e.preventDefault();
-  const target=dragOverRow||e.target.closest('.part-row');
-  if(dragRow && target && target!==dragRow){
-    const wrap=$('#partsRows');
-    const all=[...wrap.children];
-    if(all.indexOf(dragRow) < all.indexOf(target)) wrap.insertBefore(dragRow, target.nextElementSibling);
-    else wrap.insertBefore(dragRow, target);
+function rowTargetAt(y){
+  const wrap=$('#partsRows');
+  const rows=[...wrap.querySelectorAll('.part-row')].filter(el=>el!==pDrag.row);
+  for (const el of rows){
+    const r=el.getBoundingClientRect();
+    if (y>=r.top && y<=r.bottom) return {el, after:y>r.top+r.height/2};
   }
+  if (rows.length){
+    const f=rows[0].getBoundingClientRect(), l=rows[rows.length-1].getBoundingClientRect();
+    if (y<f.top) return {el:rows[0], after:false};
+    if (y>l.bottom) return {el:rows[rows.length-1], after:true};
+  }
+  return null;
+}
+function rowMoveTo(y){
+  if (!pDrag || !pDrag.clone) return;
+  const t=rowTargetAt(y); if (!t) return;
+  const wrap=$('#partsRows'), row=pDrag.row;
+  const ref=t.after?t.el.nextElementSibling:t.el;
+  if (ref===row || row.nextElementSibling===ref) return;
+  flipRows(wrap, row, ()=>wrap.insertBefore(row, ref));
   renumberParts(); refreshPartStyles();
 }
-function partsDragEnd(){
-  if(dragRow) dragRow.classList.remove('dragging');
-  if(dragOverRow) dragOverRow.classList.remove('drag-over');
-  dragRow=null; dragOverRow=null;
+function partsPointerDown(e){
+  if (e.pointerType==='mouse' && e.button!==0) return;
+  const grip=e.target.closest('.p-grip');
+  if (!grip) return;
+  const row=grip.closest('.part-row');
+  if (!row) return;
+  e.preventDefault();
+  const r=row.getBoundingClientRect();
+  pDrag={row, x0:e.clientX, y0:e.clientY, offX:e.clientX-r.left, offY:e.clientY-r.top, clone:null};
+  window.addEventListener('pointermove', partsPointerMove);
+  window.addEventListener('pointerup', partsPointerEnd);
+  window.addEventListener('pointercancel', partsPointerEnd);
+}
+function partsPointerMove(e){
+  if (!pDrag) return;
+  if (!pDrag.clone){
+    if (Math.abs(e.clientX-pDrag.x0)<3 && Math.abs(e.clientY-pDrag.y0)<3) return;
+    beginRowDrag();
+  }
+  ghostMove(e.clientX, e.clientY);
+  dragAutoScroll(e.clientY);
+  rowMoveTo(e.clientY);
+}
+function partsPointerEnd(){
+  if (!pDrag) return;
+  const row=pDrag.row, clone=pDrag.clone;
+  window.removeEventListener('pointermove', partsPointerMove);
+  window.removeEventListener('pointerup', partsPointerEnd);
+  window.removeEventListener('pointercancel', partsPointerEnd);
+  document.body.classList.remove('row-sorting');
+  row.classList.remove('dragging');
+  if (clone){
+    const r=row.getBoundingClientRect();
+    const cx=parseFloat(clone.style.left)||0, cy=parseFloat(clone.style.top)||0;
+    clone.style.transition='transform .18s ease, opacity .18s ease';
+    clone.style.transform='translate('+(r.left-cx)+'px,'+(r.top-cy)+'px) scale(1)';
+    clone.style.opacity='0';
+    setTimeout(()=>clone.remove(), 220);
+  }
+  renumberParts(); refreshPartStyles();
+  pDrag=null;
 }
 function partAutofill(e){
   if (!e.target.classList.contains('p-part')) return;
@@ -1205,11 +1286,7 @@ function init(){
   on('#partsRows','input',refreshPartStyles);
   on('#partsRows','change',partsChange);
   on('#partsRows','click',partDelete);
-  on('#partsRows','dragstart',partsDragStart);
-  on('#partsRows','dragover',partsDragOver);
-  on('#partsRows','dragleave',e=>{ if(e.target.closest('.drag-over')) e.target.closest('.drag-over').classList.remove('drag-over'); });
-  on('#partsRows','drop',partsDrop);
-  on('#partsRows','dragend',partsDragEnd);
+  on('#partsRows','pointerdown',partsPointerDown);
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
