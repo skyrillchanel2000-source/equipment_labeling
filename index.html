@@ -33,7 +33,7 @@ a.icon-btn{text-decoration:none}
 .tab.active{background:#fff;color:var(--ink);font-weight:600}
 .tab .cnt{background:var(--acc);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px}
 .filters{display:flex;gap:10px;padding:14px 22px;flex-wrap:wrap;align-items:center}
-.filters input{flex:0 1 280px;min-width:220px;width:auto}
+.filters input{flex:1 1 50%;min-width:260px;width:auto}
 .filters select{flex:0 0 auto;width:auto;min-width:150px}
 #fSort{min-width:180px}
 input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
@@ -395,8 +395,11 @@ const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
   `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1';
+const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1';
 let cards=[], deletedCards=[], partsMap=new Map();
+let pendingOps=[];
+try{ pendingOps=JSON.parse(localStorage.getItem(LS_OPS)||'[]'); }catch(e){ pendingOps=[]; }
+if (!Array.isArray(pendingOps)) pendingOps=[];
 let sortKey=localStorage.getItem(LS_SORT)||'date-desc';
 if (!['date-desc','date-asc','category','manufacturer','model','marking'].includes(sortKey)) sortKey='date-desc';
 let filters={q:'',cat:'',man:''};
@@ -455,41 +458,128 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v15 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v16 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+}
+// ================= Непротиворечивая синхронизация =================
+// Локальные операции хранятся, пока таблица их не подтвердит, поэтому
+// синхронизация не может «откатить» только что созданную/удалённую карточку.
+function saveOps(){
+  try{ localStorage.setItem(LS_OPS, JSON.stringify(pendingOps)); }catch(e){}
+}
+function addOp(op, id, card){
+  id=String(id);
+  pendingOps=pendingOps.filter(o=>String(o.id)!==id);
+  pendingOps.push({op, id, ts:Date.now(), card:card?JSON.parse(JSON.stringify(card)):null});
+  const cut=Date.now()-6*3600*1000;
+  pendingOps=pendingOps.filter(o=>o.ts>=cut);
+  saveOps();
+}
+function cardSig(c){
+  if (!c) return '';
+  return [buildMarking(c), c.category||'', c.manufacturer||'', c.model||'', c.comment||'',
+    c.schemeText||'', c.sep==null?'-':c.sep,
+    JSON.stringify((c.parts||[]).map(p=>[p.part||'',p.desc||'',p.char||'',p.unit||'',p.sepAfter==null?'':p.sepAfter]))
+  ].join('\u0001');
+}
+function sameCard(a,b){ return cardSig(a)===cardSig(b); }
+function applyPending(serverMain, serverTrash){
+  const main=new Map(), trash=new Map();
+  serverMain.forEach(c=>main.set(String(c.id), c));
+  serverTrash.forEach(c=>trash.set(String(c.id), c));
+  const keep=[];
+  pendingOps.forEach(o=>{
+    const id=String(o.id);
+    let done=false;
+    if (o.op==='save'){
+      const srv=main.get(id);
+      if (srv && sameCard(srv,o.card)) done=true;
+      else if (o.card) main.set(id, o.card);
+    } else if (o.op==='delete'){
+      if (!main.has(id) && trash.has(id)){ done=true; }
+      else {
+        main.delete(id);
+        if (o.card && !trash.has(id)) trash.set(id, Object.assign({}, o.card, {deletedAt:o.card.deletedAt||new Date(o.ts).toLocaleString('ru-RU')}));
+      }
+    } else if (o.op==='restore'){
+      if (main.has(id)){ done=true; }
+      else {
+        trash.delete(id);
+        if (o.card) main.set(id, o.card);
+      }
+    } else if (o.op==='purge'){
+      if (!trash.has(id)){ done=true; }
+      else trash.delete(id);
+    }
+    if (!done) keep.push(o);
+  });
+  if (keep.length!==pendingOps.length){ pendingOps=keep; saveOps(); }
+  return {
+    main:[...main.values()],
+    trash:[...trash.values()],
+    stale:pendingOps.filter(o=>Date.now()-o.ts>90000).length
+  };
+}
+function modalOpen(){ return !!document.querySelector('.modal:not(.hidden)'); }
+let uiPending=false;
+function refreshUI(){
+  updateCounts();
+  if (modalOpen()){ uiPending=true; updateFooter(); return; }
+  uiPending=false;
+  fillDatalists(); renderFilters(); renderCards(); updateFooter();
+}
+function flushUI(){ if (uiPending && !modalOpen()) refreshUI(); }
+function hydrate(){
+  try{
+    cards=JSON.parse(localStorage.getItem(LS_CARDS)||'[]').map(fixCard);
+    deletedCards=JSON.parse(localStorage.getItem(LS_TRASH)||'[]').map(fixCard);
+  }catch(e){ cards=[]; deletedCards=[]; }
+  refreshUI();
+}
+async function fetchJSON(url){
+  const r=await fetch(url, {cache:'no-store'});
+  return r.json();
 }
 async function loadCards(){
   if (loading){ needReload=true; return; }
   loading=true; busy(true);
   try{
+    const sep = API_URL.includes('?') ? '&' : '?';
+    const bust = '&t=' + Date.now();
     let raw=null, rawDel=null, msg='', cls='';
-    const local=JSON.parse(localStorage.getItem(LS_CARDS)||'[]').map(fixCard);
     try{
-      const sep = API_URL.includes('?') ? '&' : '?';
-      raw = await (await fetch(API_URL+sep+'action=list')).json();
-      rawDel = await (await fetch(API_URL+sep+'action=listDeleted')).json().catch(()=>[]);
-      if (!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
-      if (!Array.isArray(rawDel)) rawDel=[];
-      localStorage.setItem(LS_CARDS, JSON.stringify(raw));
+      let r=null;
+      try{ r = await fetchJSON(API_URL+sep+'action=listAll'+bust); }catch(e){ r=null; }
+      if (r && Array.isArray(r.main)){
+        raw=r.main; rawDel=Array.isArray(r.trash)?r.trash:[];
+      } else {
+        raw = await fetchJSON(API_URL+sep+'action=list'+bust);
+        if(!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
+        rawDel = await fetchJSON(API_URL+sep+'action=listDeleted'+bust).catch(()=>[]);
+        if(!Array.isArray(rawDel)) rawDel=[];
+      }
     }catch(e){
       msg='Не удалось получить данные из Google Таблицы ('+e.message+'). Показаны локальные данные.';
       cls='warn';
-      rawDel = JSON.parse(localStorage.getItem(LS_TRASH)||'[]');
+      raw=null; rawDel=null;
     }
-    cards=(raw||local).map(fixCard);
-    deletedCards=(rawDel||[]).map(fixCard);
-    localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
     if (raw){
-      const ids=new Set(cards.map(c=>c.id));
-      const stuck=local.filter(c=>!ids.has(c.id));
-      if (stuck.length){
-        cards=stuck.concat(cards);
-        msg='Внимание: '+stuck.length+' карточк(а/и) ещё не появились в Google Таблице — операция выполняется или не прошла. Подождите и нажмите «Обновить».';
+      const merged=applyPending(raw.map(fixCard), (rawDel||[]).map(fixCard));
+      cards=merged.main;
+      deletedCards=merged.trash;
+      localStorage.setItem(LS_CARDS, JSON.stringify(cards));
+      localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+      if (merged.stale){
+        msg='Внимание: '+merged.stale+' изменени(е/я) ещё не подтверждены Google Таблицей. Работать можно, нажмите «Обновить» позже.';
         cls='warn';
       }
+    } else {
+      try{
+        cards=JSON.parse(localStorage.getItem(LS_CARDS)||'[]').map(fixCard);
+        deletedCards=JSON.parse(localStorage.getItem(LS_TRASH)||'[]').map(fixCard);
+      }catch(e){ cards=cards||[]; deletedCards=deletedCards||[]; }
     }
     setBanner(msg, cls);
-    updateCounts();
-    fillDatalists(); renderFilters(); renderCards(); updateFooter();
+    refreshUI();
   } finally {
     loading=false; busy(false);
     if (needReload){ needReload=false; setTimeout(loadCards, 300); }
@@ -515,9 +605,10 @@ function queueOp(payload){
 async function persistCard(card){
   const i=cards.findIndex(c=>String(c.id)===String(card.id));
   if(i>=0) cards[i]=card; else cards.unshift(card);
+  addOp('save', card.id, card);
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
-  fillDatalists(); renderFilters(); renderCards(); updateFooter();
-  queueOp({action:'save', card}).then(()=>setTimeout(loadCards, 400));
+  refreshUI();
+  queueOp({action:'save', card}).then(()=>setTimeout(loadCards, 600));
 }
 
 // ================= Список карточек =================
@@ -668,18 +759,20 @@ function cardAction(e){
     if(!confirm('Удалить маркировку '+c.id+'? Она переместится на лист «Удалённые» в Google Таблице.')) return;
     cards=cards.filter(x=>String(x.id)!==String(id));
     deletedCards.unshift(c);
+    addOp('delete', id, c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
-    queueOp({action:'delete', id}).then(()=>setTimeout(loadCards, 400));
+    refreshUI();
+    queueOp({action:'delete', id}).then(()=>setTimeout(loadCards, 600));
   }
   else if(act==='restore'){
     deletedCards=deletedCards.filter(x=>String(x.id)!==String(id));
     cards.unshift(c);
+    addOp('restore', id, c);
     localStorage.setItem(LS_CARDS, JSON.stringify(cards));
     localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
-    updateCounts(); fillDatalists(); renderFilters(); renderCards(); updateFooter();
-    queueOp({action:'restore', id}).then(()=>setTimeout(loadCards, 400));
+    refreshUI();
+    queueOp({action:'restore', id}).then(()=>setTimeout(loadCards, 600));
   }
   else if(act==='purge'){
     if(!confirm('Удалить маркировку '+c.id+' НАВСЕГДА? Восстановить будет невозможно.')) return;
@@ -1384,11 +1477,15 @@ function init(){
   const sInput=$('#fSearch'); if (sInput) sInput.value=filters.q||'';
   const sSel=$('#fSort'); if (sSel) sSel.value=sortKey;
 
+  const mo=new MutationObserver(()=>{ if (!modalOpen()) flushUI(); });
+  $$('.modal').forEach(m=>mo.observe(m,{attributes:true,attributeFilter:['class']}));
+
+  hydrate();
   loadCards();
 }
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v15</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v16</footer>
 </body>
 </html>
