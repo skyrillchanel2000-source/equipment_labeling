@@ -34,6 +34,7 @@ a.icon-btn{text-decoration:none}
 .tab .cnt{background:var(--acc);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px}
 .filters{display:flex;gap:10px;padding:14px 22px;flex-wrap:wrap}
 .filters input{flex:1;min-width:220px}
+#fSort{min-width:180px}
 input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
 label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;padding:0 22px 40px}
@@ -144,6 +145,14 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
   <input id="fSearch" type="text" placeholder="Поиск: точная маркировка или части маркировки через %">
   <select id="fCategory"><option value="">Все категории</option></select>
   <select id="fManufacturer"><option value="">Все производители</option></select>
+  <select id="fSort" title="Сортировка списка">
+    <option value="date-desc">Сначала новые</option>
+    <option value="date-asc">Сначала старые</option>
+    <option value="category">По типу оборудования</option>
+    <option value="manufacturer">По производителю</option>
+    <option value="model">По модели</option>
+    <option value="marking">По маркировке</option>
+  </select>
 </section>
 
 <main>
@@ -385,8 +394,12 @@ const sepOptions = sel => SEP_OPTIONS.map(([v,l]) =>
   `<option value="${esc(v)}"${v === (sel ?? '-') ? ' selected' : ''}>${esc(l)}</option>`).join('');
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1';
+const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1';
 let cards=[], deletedCards=[], partsMap=new Map();
+let sortKey=localStorage.getItem(LS_SORT)||'date-desc';
+if (!['date-desc','date-asc','category','manufacturer','model','marking'].includes(sortKey)) sortKey='date-desc';
+let filters={q:'',cat:'',man:''};
+try{ filters=Object.assign({q:'',cat:'',man:''}, JSON.parse(localStorage.getItem(LS_FILTERS)||'{}')); }catch(e){}
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
@@ -441,7 +454,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v14 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v15 · скрипт: OK · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 async function loadCards(){
   if (loading){ needReload=true; return; }
@@ -520,12 +533,73 @@ function markingHTML(card){
     if (pending === ')') html += esc(')'); // закрывающая скобка после последней части
   return html || '<i>—</i>';
 }
+// ================= Сортировка и фильтры =================
+function cmpText(a,b){
+  const x=String(a||'').trim(), y=String(b||'').trim();
+  if (!x && y) return 1;
+  if (x && !y) return -1;
+  return x.localeCompare(y,'ru',{numeric:true,sensitivity:'base'});
+}
+function parseCardDate(s){
+  if (!s) return 0;
+  const str=String(s).trim();
+  if (!str) return 0;
+  const m=str.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m){
+    let y=+m[3]; if (y<100) y+=2000;
+    const t=new Date(y, +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0)).getTime();
+    if (!isNaN(t)) return t;
+  }
+  const t=Date.parse(str);
+  return isNaN(t)?0:t;
+}
+function cmpDate(a,b,dir){
+  const ta=parseCardDate(a.date), tb=parseCardDate(b.date);
+  if (!ta && !tb) return 0;
+  if (!ta) return 1;
+  if (!tb) return -1;
+  return dir*(ta-tb);
+}
+function sortCards(list){
+  const idx=new Map(list.map((c,i)=>[c,i]));
+  const cmp=(a,b)=>{
+    let r=0;
+    switch(sortKey){
+      case 'date-asc':
+        r=cmpDate(a,b,1) || cmpText(a.category,b.category) || cmpText(buildMarking(a),buildMarking(b)); break;
+      case 'category':
+        r=cmpText(a.category,b.category) || cmpText(a.manufacturer,b.manufacturer) || cmpDate(a,b,-1); break;
+      case 'manufacturer':
+        r=cmpText(a.manufacturer,b.manufacturer) || cmpText(a.category,b.category) || cmpDate(a,b,-1); break;
+      case 'model':
+        r=cmpText(a.model,b.model) || cmpText(a.category,b.category) || cmpDate(a,b,-1); break;
+      case 'marking':
+        r=cmpText(buildMarking(a),buildMarking(b)) || cmpDate(a,b,-1); break;
+      default:
+        r=cmpDate(a,b,-1) || cmpText(a.category,b.category) || cmpText(buildMarking(a),buildMarking(b));
+    }
+    return r || (idx.get(a)-idx.get(b));
+  };
+  return list.slice().sort(cmp);
+}
+function readFilters(){
+  filters={q:$('#fSearch').value, cat:$('#fCategory').value, man:$('#fManufacturer').value};
+  try{ localStorage.setItem(LS_FILTERS, JSON.stringify(filters)); }catch(e){}
+}
+function buildFilterSelect(sel, arr, value, allLabel){
+  if (!sel) return;
+  const vals=arr.slice();
+  if (value && !vals.includes(value)) vals.push(value);
+  vals.sort(cmpText);
+  sel.innerHTML=`<option value="">${esc(allLabel)}</option>`+
+    vals.map(v=>`<option${v===value?' selected':''}>${esc(v)}</option>`).join('');
+  sel.value=value||'';
+}
 function renderFilters(){
-  const cats=[...new Set(cards.map(c=>c.category).filter(Boolean))].sort();
-  const mans=[...new Set(cards.map(c=>c.manufacturer).filter(Boolean))].sort();
-  const keep=(sel,arr)=>{ const v=sel.value;
-    sel.innerHTML='<option value="">Все</option>'+arr.map(x=>`<option>${esc(x)}</option>`).join(''); sel.value=v; };
-  keep($('#fCategory'),cats); keep($('#fManufacturer'),mans);
+  const cats=[...new Set(cards.map(c=>c.category).filter(Boolean))];
+  const mans=[...new Set(cards.map(c=>c.manufacturer).filter(Boolean))];
+  buildFilterSelect($('#fCategory'), cats, filters.cat, 'Все категории');
+  buildFilterSelect($('#fManufacturer'), mans, filters.man, 'Все производители');
 }
 function trashCardHTML(c){
   return `
@@ -544,9 +618,9 @@ function trashCardHTML(c){
 function renderCards(){
   const isTrash = currentTab==='trash';
   const src = isTrash ? deletedCards : cards;
-  const q=$('#fSearch').value.trim();
-  const cat=$('#fCategory').value, man=$('#fManufacturer').value;
-  const list=src.filter(c=>{
+  const q=filters.q.trim();
+  const cat=filters.cat, man=filters.man;
+  const list=sortCards(src.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
     if (q){
@@ -555,7 +629,7 @@ function renderCards(){
       if (!searchMatch(hay, q)) return false;
     }
     return true;
-  });
+  }));
   $('#emptyText').textContent = isTrash ? 'Корзина пуста.' : 'Пока нет ни одной маркировки.';
   $('#btnAddEmpty').classList.toggle('hidden', isTrash);
   $('#empty').classList.toggle('hidden', list.length>0);
@@ -1299,13 +1373,21 @@ function init(){
   }));
   $$('.modal').forEach(m=>m.addEventListener('click', e=>{ if(e.target===m) m.classList.add('hidden'); }));
 
-  ['fSearch','fCategory','fManufacturer'].forEach(id=>on('#'+id,'input',renderCards));
+  ['fSearch','fCategory','fManufacturer'].forEach(id=>on('#'+id,'input',()=>{ readFilters(); renderCards(); }));
+  on('#fSort','change',e=>{
+    sortKey=e.target.value||'date-desc';
+    try{ localStorage.setItem(LS_SORT, sortKey); }catch(err){}
+    renderCards();
+  });
+
+  const sInput=$('#fSearch'); if (sInput) sInput.value=filters.q||'';
+  const sSel=$('#fSort'); if (sSel) sSel.value=sortKey;
 
   loadCards();
 }
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v14</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v15</footer>
 </body>
 </html>
