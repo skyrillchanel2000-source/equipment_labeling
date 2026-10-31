@@ -68,8 +68,11 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.part-row{display:grid;grid-template-columns:26px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:26px 76px 130px 82px 1fr 100px 84px 40px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
+.part-row .p-move{display:inline-flex;gap:2px;flex-direction:column}
+.part-row .p-move .icon-btn{min-width:30px;height:20px;padding:0}
+.part-row .p-move .icon-btn svg{width:15px;height:15px}
 .p-part.used{border-color:#16a34a;background:#f0fdf4}
 .marking-preview{margin-top:8px;font-size:16px;font-weight:600}
 .scheme-row{display:flex;align-items:center;gap:10px;margin:12px 0}
@@ -350,6 +353,8 @@ const ICONS = {
   x:'<path d="M18 6L6 18M6 6l12 12"/>',
   home:'<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
   undo:'<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+  up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
+  down:'<path d="M12 5v14M19 12l-7 7-7-7"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
@@ -674,9 +679,13 @@ function updateEditDatalists(){
   $('#dlParts').innerHTML=pPool.sort().map(v=>`<option value="${esc(v)}">`).join('');
 }
 function renderPartRows(parts, defSep){
-  $('#partsRows').innerHTML=parts.map(p=>`
-    <div class="part-row">
+  $('#partsRows').innerHTML=parts.map((p,i)=>`
+    <div class="part-row" data-pi="${i}">
       <span class="idx"></span>
+      <span class="p-move">
+        <button class="icon-btn p-up" data-tip="Переместить вверх" ${i===0?' disabled':''}>${icon('up')}</button>
+        <button class="icon-btn p-down" data-tip="Переместить вниз" ${i===parts.length-1?' disabled':''}>${icon('down')}</button>
+      </span>
       <input class="p-part" list="dlParts" value="${esc(p.part||'')}" placeholder="часть">
       <select class="p-sep" title="Разделитель после этой части">${sepOptions(p.sepAfter ?? defSep)}</select>
       <input class="p-desc" value="${esc(p.desc||'')}" placeholder="описание части">
@@ -686,7 +695,15 @@ function renderPartRows(parts, defSep){
     </div>`).join('');
   renumberParts(); refreshPartStyles();
 }
-function renumberParts(){ $$('#partsRows .part-row .idx').forEach((s,i)=>s.textContent=i+1); }
+function renumberParts(){
+  const rows=$$('#partsRows .part-row');
+  rows.forEach((s,i)=>{ s.dataset.pi=i; s.querySelector('.idx').textContent=i+1; });
+  rows.forEach((r,i)=>{
+    const up=r.querySelector('.p-up'), down=r.querySelector('.p-down');
+    if(up) up.disabled = i===0;
+    if(down) down.disabled = i===rows.length-1;
+  });
+}
 function refreshPartStyles(){
   $$('#partsRows .part-row').forEach(r=>{
     const inp=r.querySelector('.p-part'), v=inp.value.trim();
@@ -710,7 +727,11 @@ function refreshPartStyles(){
 }
 function addPartRow(){
   $('#partsRows').insertAdjacentHTML('beforeend', `
-    <div class="part-row"><span class="idx"></span>
+    <div class="part-row" data-pi="${$('#partsRows').children.length}"><span class="idx"></span>
+    <span class="p-move">
+      <button class="icon-btn p-up" data-tip="Переместить вверх">${icon('up')}</button>
+      <button class="icon-btn p-down" data-tip="Переместить вниз" disabled>${icon('down')}</button>
+    </span>
     <input class="p-part" list="dlParts" placeholder="часть">
     <select class="p-sep" title="Разделитель после этой части">${sepOptions('-')}</select>
     <input class="p-desc" placeholder="описание части">
@@ -718,6 +739,15 @@ function addPartRow(){
     <select class="p-unit">${unitOptions('')}</select>
     <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button></div>`);
   renumberParts();
+}
+function partMove(e){
+  const b=e.target.closest('.p-up,.p-down'); if(!b) return;
+  const row=b.closest('.part-row'); if(!row) return;
+  const wrap=$('#partsRows');
+  const isUp=b.classList.contains('p-up');
+  if(isUp && row.previousElementSibling) wrap.insertBefore(row, row.previousElementSibling);
+  else if(!isUp && row.nextElementSibling) wrap.insertBefore(row.nextElementSibling, row);
+  renumberParts(); refreshPartStyles();
 }
 function partAutofill(e){
   if (!e.target.classList.contains('p-part')) return;
@@ -1160,7 +1190,7 @@ function init(){
 
   on('#partsRows','input',refreshPartStyles);
   on('#partsRows','change',partsChange);
-  on('#partsRows','click',partDelete);
+  on('#partsRows','click',e=>{ partMove(e); partDelete(e); });
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
