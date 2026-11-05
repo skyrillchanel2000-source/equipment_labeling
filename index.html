@@ -67,6 +67,21 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 fieldset{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;padding:12px}
 legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.field-pick{position:relative}
+.field-pick input{width:100%;padding-right:24px}
+.f-drop{position:absolute;right:1px;top:1px;bottom:1px;width:22px;border:0;background:transparent;color:var(--mut);cursor:pointer;font-size:12px;line-height:1;padding:0}
+.f-drop:hover{color:var(--acc)}
+.f-menu{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:50;max-height:240px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.16)}
+.f-menu.hidden{display:none}
+.f-opt{display:block;width:100%;text-align:left;padding:6px 9px;border:0;border-bottom:1px solid #eef2f7;background:none;font:inherit;font-size:13px;cursor:pointer}
+.f-opt:last-child{border-bottom:0}
+.f-opt:hover,.f-opt:focus{background:#eef4ff;outline:none}
+.f-empty{padding:7px 9px;color:var(--mut);font-size:12px}
+.mk1c{font-size:13px;color:var(--mut);margin-bottom:10px}
+.mk1c b{font-weight:600;cursor:pointer}
+.mk1c b.ok{color:#127a3d;background:#e6f7ec;border-radius:6px;padding:1px 6px}
+.mk1c b.bad{color:#b3261e;background:#fdecea;border-radius:6px;padding:1px 6px}
+.mk1c b.none{color:var(--mut);background:#f1f3f7;border-radius:6px;padding:1px 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
@@ -205,11 +220,12 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
     </div>
     <div class="modal-body">
       <div class="grid4">
-        <label>Категория<input id="eCategory" list="dlCategories" placeholder="например: Датчики"></label>
-        <label>Производитель<input id="eManufacturer" list="dlManufacturers" placeholder="например: Термекс"></label>
-        <label>Модель оборудования<input id="eModel" placeholder="например: ТСПТ-104"></label>
+        <label>Категория<div class="field-pick"><input id="eCategory" autocomplete="off" placeholder="например: Датчики"><button type="button" class="f-drop" tabindex="-1" data-tip="Список категорий">▾</button><div class="f-menu hidden"></div></div></label>
+        <label>Производитель<div class="field-pick"><input id="eManufacturer" autocomplete="off" placeholder="например: Термекс"><button type="button" class="f-drop" tabindex="-1" data-tip="Список производителей">▾</button><div class="f-menu hidden"></div></div></label>
+        <label>Модель оборудования<div class="field-pick"><input id="eModel" autocomplete="off" placeholder="например: ТСПТ-104"><button type="button" class="f-drop" tabindex="-1" data-tip="Список моделей">▾</button><div class="f-menu hidden"></div></div></label>
         <label>Код 1С<input id="eCode" placeholder="Введите код 1С"></label>
       </div>
+      <label>Текущая маркировка из 1С<input id="eMarking1c" autocomplete="off" placeholder="вставьте маркировку так, как она записана в 1С"></label>
       <fieldset>
         <legend>Части маркировки</legend>
         <div class="parts-toolbar">
@@ -435,6 +451,7 @@ const SCHEME_NAMES = ['','только клеммы','клеммы + кабел�
 function fixCard(c){
   const x = Object.assign({}, c, { id: String(c.id) });
   if (x.scheme) x.scheme = migrateScheme(x.scheme);
+  if (x.marking1c==null) x.marking1c = '';
   return x;
 }
 
@@ -539,7 +556,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v25 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v26 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -565,24 +582,34 @@ function normSep(v){
   return s;
 }
 function normText(v){ return String(v==null?'':v).replace(/[\s\u00a0]+$/,'').replace(/^[\s\u00a0]+/,''); }
-const CARD_FIELDS=[['marking','маркировка'],['category','категория'],['manufacturer','производитель'],
-  ['model','модель'],['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
+const CARD_FIELDS=[['marking','маркировка'],['marking1c','маркировка 1С'],['category','категория'],
+  ['manufacturer','производитель'],['model','модель'],['comment','комментарий'],
+  ['schemeText','текст схемы'],['sep','разделитель']];
 // Разделитель карточки — производное от шаблона модели, в таблицу он пишется как «(пробел)»/«(нет)».
 // Его расхождение не должно держать операцию в очереди навсегда, поэтому в подтверждение он не входит.
 const CONFIRM_FIELDS=CARD_FIELDS.filter(([k])=>k!=='sep');
+// Поля, которых нет в ответе развёрнутого скрипта, не сравниваем: старая версия
+// просто не знает про новую колонку и иначе держала бы операцию в очереди вечно.
+function confirmFieldsFor(srv){
+  if (!srv) return CONFIRM_FIELDS;
+  return CONFIRM_FIELDS.filter(([k])=>k in srv);
+}
 function fieldVal(c,k){
   if (!c) return '';
   return k==='sep' ? normSep(c.sep) : normText(c[k]);
 }
-function cardSig(c){
+function cardSig(c, fields){
   if (!c) return '';
-  return CONFIRM_FIELDS.map(([k])=>fieldVal(c,k)).join('\u0001');
+  return (fields||CONFIRM_FIELDS).map(([k])=>fieldVal(c,k)).join('\u0001');
 }
-function sameCard(a,b){ return cardSig(a)===cardSig(b); }
+function sameCard(local, srv){
+  const f=confirmFieldsFor(srv);
+  return cardSig(local,f)===cardSig(srv,f);
+}
 // Какие поля локальной копии не совпали с таблицей (null — карточки в таблице нет)
 function cardDiff(local, srv){
   if (!srv) return null;
-  return CONFIRM_FIELDS.filter(([k])=>fieldVal(local,k)!==fieldVal(srv,k)).map(([,t])=>t);
+  return confirmFieldsFor(srv).filter(([k])=>fieldVal(local,k)!==fieldVal(srv,k)).map(([,t])=>t);
 }
 function applyPending(serverMain, serverTrash){
   const main=new Map(), trash=new Map();
@@ -987,8 +1014,13 @@ function openView(id){
         <tbody>${cparts.map((p,i)=>`<tr data-pidx="${i}"><td>${i+1}</td><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
         <div class="hint">Описания частей — с листа-шаблона «${esc(modelKeyOf(c))}»</div>`
     : `<div class="hint">Маркировка не разобрана по шаблону${modelKeyOf(c)?`: лист «${esc(modelKeyOf(c))}» не найден или в нём нет нужных частей`:''}. Описания частей появятся, когда шаблон будет заполнен.</div>`;
+  const mk1c=normText(c.marking1c), mkOwn=normText(c.marking);
+  const mkCls = !mk1c ? 'none' : (mk1c===mkOwn ? 'ok' : 'bad');
+  const mkTip = !mk1c ? 'Маркировка 1С не заполнена'
+    : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
+    <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
     <div class="hint" id="copyHint">${COPY_HINT}</div>
     ${partsHTML}
@@ -1012,6 +1044,12 @@ function openView(id){
   if (vm) vm.onclick=()=>copyText(full).then(()=>flashHint('Скопировано ✓: '+full)).catch(()=>alert(full));
   const vc=$('#viewCode');
   if (vc) vc.onclick=()=>copyText(c.id).then(()=>flashHint('Код 1С скопирован ✓: '+c.id)).catch(()=>alert(c.id));
+  const v1=$('#viewMarking1c');
+  if (v1) v1.onclick=()=>{
+    const txt=c.marking1c||'';
+    if (!txt) return;
+    return copyText(txt).then(()=>flashHint('Маркировка 1С скопирована ✓: '+txt)).catch(()=>alert(txt));
+  };
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
   const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>copyText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
@@ -1034,6 +1072,51 @@ function fillEditDatalists(){
   $('#dlModels').innerHTML=opts(cards.map(c=>c.model));
 }
 function updateEditDatalists(){ fillEditDatalists(); }
+
+// ================= Выпадающие списки полей карточки =================
+// Значения берутся из уже сохранённых карточек: производители — в рамках
+// выбранной категории, модели — в рамках категории и производителя.
+function uniqSorted(arr){ return [...new Set(arr.filter(Boolean))].sort(cmpText); }
+function comboValues(id){
+  const cat=normText($('#eCategory')?$('#eCategory').value:'');
+  const man=normText($('#eManufacturer')?$('#eManufacturer').value:'');
+  if (id==='eCategory') return uniqSorted(cards.map(c=>c.category));
+  if (id==='eManufacturer'){
+    const byCat=cards.filter(c=>!cat || normText(c.category)===cat).map(c=>c.manufacturer);
+    return uniqSorted(byCat.length?byCat:cards.map(c=>c.manufacturer));
+  }
+  const byBoth=cards.filter(c=>(!cat||normText(c.category)===cat)&&(!man||normText(c.manufacturer)===man)).map(c=>c.model);
+  return uniqSorted(byBoth.length?byBoth:cards.map(c=>c.model));
+}
+function comboMenu(input){ const w=input.closest('.field-pick'); return w?w.querySelector('.f-menu'):null; }
+function closeComboMenus(except){
+  $$('#editModal .f-menu').forEach(m=>{ if (m!==except) m.classList.add('hidden'); });
+}
+function openCombo(input, showAll){
+  const menu=comboMenu(input); if (!menu) return;
+  closeComboMenus(menu);
+  const q=showAll?'':normText(input.value).toLowerCase();
+  const list=comboValues(input.id).filter(v=>!q || v.toLowerCase().indexOf(q)>=0);
+  menu.innerHTML=list.length
+    ? list.map(v=>'<button type="button" class="f-opt" data-v="'+esc(v)+'">'+esc(v)+'</button>').join('')
+    : '<div class="f-empty">Нет сохранённых значений — впишите своё</div>';
+  menu.classList.remove('hidden');
+  menu.scrollTop=0;
+}
+function toggleCombo(input){
+  const menu=comboMenu(input);
+  if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+  else openCombo(input, true);
+}
+function pickCombo(btn){
+  const pick=btn.closest('.field-pick'), input=pick.querySelector('input');
+  if (!input) return;
+  input.value=btn.dataset.v||'';
+  const menu=pick.querySelector('.f-menu');
+  if (menu) menu.classList.add('hidden');
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+  input.dispatchEvent(new Event('change',{bubbles:true}));
+}
 
 function currentModelKey(){
   return modelKeyOf({manufacturer:$('#eManufacturer').value, model:$('#eModel').value});
@@ -1449,7 +1532,7 @@ async function pushTemplateChanges(rows, key){
 
 function openEdit(src, mode){
   editId=null; editBaseOn='';
-  let base={category:'',manufacturer:'',model:'',sep:'-',marking:'',comment:'',scheme:null,schemeText:'',basedOn:'',date:''};
+  let base={category:'',manufacturer:'',model:'',sep:'-',marking:'',marking1c:'',comment:'',scheme:null,schemeText:'',basedOn:'',date:''};
   $('#editTitle').textContent='Новая маркировка';
   if (mode==='edit' && src){
     base=JSON.parse(JSON.stringify(src)); editId=src.id; editBaseOn=src.basedOn||'';
@@ -1462,6 +1545,7 @@ function openEdit(src, mode){
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
+  $('#eMarking1c').value=base.marking1c||'';
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
   fillEditDatalists();
   openEditor(base.marking||'');
@@ -1488,6 +1572,7 @@ function collectCard(){
     manufacturer: $('#eManufacturer').value.trim(),
     model: $('#eModel').value.trim(),
     marking: marking,
+    marking1c: $('#eMarking1c').value.trim(),
     sep: first?(first.sep||'-'):'-',
     comment: $('#eComment').value.trim(),
     scheme: draftScheme, schemeType: draftScheme?draftScheme.type:0,
@@ -1871,6 +1956,41 @@ function init(){
   on('#eManufacturer','input',onTemplateKeyChange);
   on('#eModel','input',onTemplateKeyChange);
 
+  // выпадающие списки категории, производителя и модели
+  ['eCategory','eManufacturer','eModel'].forEach(id=>{
+    on('#'+id,'input',e=>{ const m=comboMenu(e.target); if (m && !m.classList.contains('hidden')) openCombo(e.target,false); });
+  });
+  on('#editModal','click',e=>{
+    const t=e.target;
+    const drop=t.closest && t.closest('.f-drop');
+    if (drop){
+      const inp=drop.closest('.field-pick').querySelector('input');
+      if (inp){ inp.focus(); toggleCombo(inp); }
+      return;
+    }
+    const opt=t.closest && t.closest('.f-opt');
+    if (opt){ pickCombo(opt); return; }
+    if (!(t.closest && t.closest('.field-pick'))) closeComboMenus();
+  });
+  on('#editModal','keydown',e=>{
+    const t=e.target;
+    if (t.id==='eCategory'||t.id==='eManufacturer'||t.id==='eModel'){
+      if (e.key==='ArrowDown'){
+        e.preventDefault();
+        openCombo(t, true);
+        const f=comboMenu(t) && comboMenu(t).querySelector('.f-opt');
+        if (f) f.focus();
+      } else if (e.key==='Escape') closeComboMenus();
+      return;
+    }
+    if (t.classList && t.classList.contains('f-opt')){
+      const opts=[...t.closest('.f-menu').querySelectorAll('.f-opt')], i=opts.indexOf(t);
+      if (e.key==='ArrowDown'){ e.preventDefault(); const n=opts[i+1]||opts[0]; if (n) n.focus(); }
+      else if (e.key==='ArrowUp'){ e.preventDefault(); const n=i>0?opts[i-1]:opts[opts.length-1]; if (n) n.focus(); }
+      else if (e.key==='Escape') closeComboMenus();
+    }
+  });
+
   on('#btnAddPart','click',addRow);
   on('#tplRows','input',rowInput);
   on('#tplRows','change',rowInput);
@@ -1924,7 +2044,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v25</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v26</footer>
 </body>
 </html>
 
