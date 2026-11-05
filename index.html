@@ -535,13 +535,35 @@ function addOp(op, id, card){
   pendingOps=pendingOps.filter(o=>o.ts>=cut);
   saveOps();
 }
+// Сравнение карточки с тем, что вернула таблица. Значения нормализуются,
+// иначе подтверждение не наступает из-за «(пробел)» вместо пробела или хвостовых пробелов.
+function normSep(v){
+  if (v==null) return '';
+  const s=String(v);
+  if (s==='(нет)') return '';
+  if (s==='(пробел)') return ' ';
+  return s;
+}
+function normText(v){ return String(v==null?'':v).replace(/[\s\u00a0]+$/,'').replace(/^[\s\u00a0]+/,''); }
+const CARD_FIELDS=[['marking','маркировка'],['category','категория'],['manufacturer','производитель'],
+  ['model','модель'],['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
+// Разделитель карточки — производное от шаблона модели, в таблицу он пишется как «(пробел)»/«(нет)».
+// Его расхождение не должно держать операцию в очереди навсегда, поэтому в подтверждение он не входит.
+const CONFIRM_FIELDS=CARD_FIELDS.filter(([k])=>k!=='sep');
+function fieldVal(c,k){
+  if (!c) return '';
+  return k==='sep' ? normSep(c.sep) : normText(c[k]);
+}
 function cardSig(c){
   if (!c) return '';
-  return [c.marking||'', c.category||'', c.manufacturer||'', c.model||'', c.comment||'',
-    c.schemeText||'', c.sep==null?'-':c.sep
-  ].join('\u0001');
+  return CONFIRM_FIELDS.map(([k])=>fieldVal(c,k)).join('\u0001');
 }
 function sameCard(a,b){ return cardSig(a)===cardSig(b); }
+// Какие поля локальной копии не совпали с таблицей (null — карточки в таблице нет)
+function cardDiff(local, srv){
+  if (!srv) return null;
+  return CONFIRM_FIELDS.filter(([k])=>fieldVal(local,k)!==fieldVal(srv,k)).map(([,t])=>t);
+}
 function applyPending(serverMain, serverTrash){
   const main=new Map(), trash=new Map();
   serverMain.forEach(c=>main.set(String(c.id), c));
@@ -549,9 +571,10 @@ function applyPending(serverMain, serverTrash){
   const keep=[];
   pendingOps.forEach(o=>{
     const id=String(o.id);
+    const srvMain=main.get(id), srvTrash=trash.get(id);
     let done=false;
     if (o.op==='save'){
-      const srv=main.get(id);
+      const srv=srvMain;
       if (srv && sameCard(srv,o.card)) done=true;
       else if (o.card) main.set(id, o.card);
     } else if (o.op==='delete'){
@@ -570,7 +593,13 @@ function applyPending(serverMain, serverTrash){
       if (!trash.has(id)){ done=true; }
       else trash.delete(id);
     }
-    if (!done) keep.push(o);
+    if (!done){
+      if (o.op==='save') o.diff=cardDiff(o.card, srvMain);
+      else if (o.op==='delete') o.diff=srvMain?['карточка ещё в таблице']:null;
+      else if (o.op==='restore') o.diff=srvTrash?['карточка ещё в корзине']:null;
+      else o.diff=null;
+      keep.push(o);
+    }
   });
   if (keep.length!==pendingOps.length){ pendingOps=keep; saveOps(); }
   const staleOps=pendingOps.filter(o=>Date.now()-o.ts>90000);
@@ -607,8 +636,17 @@ function pluralRu(n, one, few, many){
   if (b===1) return one;
   return many;
 }
+function opNote(o){
+  if (o.op==='save'){
+    if (o.diff===null) return ' · карточки ещё нет в таблице';
+    if (Array.isArray(o.diff) && o.diff.length) return ' · не совпадает: '+o.diff.join(', ');
+    return '';
+  }
+  if (Array.isArray(o.diff) && o.diff.length) return ' · '+o.diff[0];
+  return '';
+}
 function staleText(staleOps){
-  const lines=staleOps.map(o=>'• '+opAction(o.op)+' «'+opWhat(o)+'» — '+opWhen(o.ts));
+  const lines=staleOps.map(o=>'• '+opAction(o.op)+' «'+opWhat(o)+'» — '+opWhen(o.ts)+opNote(o));
   const head='Внимание: Google Таблица ещё не подтвердила '+staleOps.length+' '
     +pluralRu(staleOps.length,'изменение','изменения','изменений')+':';
   const tail='Работать можно, нажмите «Обновить» позже.';
@@ -692,7 +730,19 @@ async function loadCards(){
   } finally {
     loading=false; busy(false);
     if (needReload){ needReload=false; setTimeout(loadCards, 300); }
+    if (pendingOps.length) scheduleRecheck();
   }
+}
+// Пока таблица не подтвердила операцию — перепроверяем сами, без нажатия «Обновить»
+let recheckTimer=null;
+function scheduleRecheck(){
+  if (recheckTimer) return;
+  recheckTimer=setTimeout(()=>{
+    recheckTimer=null;
+    if (!pendingOps.some(o=>Date.now()-o.ts<6*3600*1000)) return;
+    if (document.hidden){ scheduleRecheck(); return; }
+    loadCards().then(scheduleRecheck, scheduleRecheck);
+  }, 20000);
 }
 function postToSheet(payload){
   return fetch(API_URL, {
