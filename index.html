@@ -24,7 +24,7 @@ a.icon-btn{text-decoration:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 #tooltip{position:fixed;z-index:100;background:#111827;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;line-height:1.4;max-width:320px;pointer-events:none;display:none;white-space:normal;word-break:break-word}
 #tooltip.show{display:block}
-#modeBanner{padding:10px 22px;font-size:14px}
+#modeBanner{padding:10px 22px;font-size:14px;white-space:pre-line}
 #modeBanner.info{background:#e0edff;color:#1d4ed8}
 #modeBanner.warn{background:#fdecea;color:#b3261e}
 #modeBanner:empty{display:none}
@@ -506,7 +506,12 @@ function schemeJumperCount(s){ return (s && s.jumpers) ? s.jumpers.length : 0; }
 
 // ================= Загрузка (без параллельных дублей) =================
 let loading=false, needReload=false;
-function setBanner(text, cls){ $('#modeBanner').textContent=text; $('#modeBanner').className=cls||''; }
+function setBanner(text, cls, tip){
+  const b=$('#modeBanner');
+  b.textContent=text;
+  b.className=cls||'';
+  if (tip) b.title=tip; else b.removeAttribute('title');
+}
 function updateCounts(){
   const m=$('#mainCnt'), t=$('#trashCnt');
   if (m) m.textContent=cards.length;
@@ -514,7 +519,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v22 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v23 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -568,11 +573,46 @@ function applyPending(serverMain, serverTrash){
     if (!done) keep.push(o);
   });
   if (keep.length!==pendingOps.length){ pendingOps=keep; saveOps(); }
+  const staleOps=pendingOps.filter(o=>Date.now()-o.ts>90000);
   return {
     main:[...main.values()],
     trash:[...trash.values()],
-    stale:pendingOps.filter(o=>Date.now()-o.ts>90000).length
+    stale:staleOps.length,
+    staleOps
   };
+}
+// Расшифровка неподтверждённой операции: что за действие и какая карточка
+function opAction(op){
+  return ({save:'правка', delete:'удаление', restore:'восстановление', purge:'удаление из корзины'})[op] || op;
+}
+function opWhat(o){
+  const c=o.card;
+  if (!c) return 'карточка без названия';
+  const mark=(c.marking||'').trim();
+  const name=[c.manufacturer,c.model].filter(Boolean).join(' ').trim();
+  return mark || name || (c.category||'').trim() || 'карточка без названия';
+}
+function opWhen(ts){
+  const m=Math.floor(Math.max(0, Date.now()-ts)/60000);
+  if (m<1) return 'только что';
+  if (m<60) return m+' мин назад';
+  const h=Math.floor(m/60);
+  if (h<24) return h+' ч '+(m%60)+' мин назад';
+  return 'с '+new Date(ts).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function pluralRu(n, one, few, many){
+  const a=Math.abs(n)%100, b=a%10;
+  if (a>10 && a<20) return many;
+  if (b>1 && b<5) return few;
+  if (b===1) return one;
+  return many;
+}
+function staleText(staleOps){
+  const lines=staleOps.map(o=>'• '+opAction(o.op)+' «'+opWhat(o)+'» — '+opWhen(o.ts));
+  const head='Внимание: Google Таблица ещё не подтвердила '+staleOps.length+' '
+    +pluralRu(staleOps.length,'изменение','изменения','изменений')+':';
+  const tail='Работать можно, нажмите «Обновить» позже.';
+  return {text:head+'\n'+lines.join('\n')+'\n'+tail, tip:lines.join('\n')};
 }
 function modalOpen(){ return !!document.querySelector('.modal:not(.hidden)'); }
 let uiPending=false;
@@ -602,7 +642,7 @@ async function loadCards(){
   try{
     const sep = API_URL.includes('?') ? '&' : '?';
     const bust = '&t=' + Date.now();
-    let raw=null, rawDel=null, msg='', cls='';
+    let raw=null, rawDel=null, msg='', cls='', tip='';
     try{
       let r=null;
       try{ r = await fetchJSON(API_URL+sep+'action=listAll'+bust); }catch(e){ r=null; }
@@ -636,7 +676,9 @@ async function loadCards(){
       localStorage.setItem(LS_CARDS, JSON.stringify(cards));
       localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
       if (merged.stale){
-        msg='Внимание: '+merged.stale+' изменени(е/я) ещё не подтверждены Google Таблицей. Работать можно, нажмите «Обновить» позже.';
+        const d=staleText(merged.staleOps);
+        msg=d.text;
+        tip=d.tip;
         cls='warn';
       }
     } else {
@@ -645,7 +687,7 @@ async function loadCards(){
         deletedCards=JSON.parse(localStorage.getItem(LS_TRASH)||'[]').map(fixCard);
       }catch(e){ cards=cards||[]; deletedCards=deletedCards||[]; }
     }
-    setBanner(msg, cls);
+    setBanner(msg, cls, tip);
     refreshUI();
   } finally {
     loading=false; busy(false);
@@ -1602,6 +1644,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v22</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v23</footer>
 </body>
 </html>
