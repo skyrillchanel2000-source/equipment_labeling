@@ -557,7 +557,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v28 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v29 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -2024,7 +2024,17 @@ function init(){
   $$('[data-close]').forEach(b=>b.addEventListener('click', e=>{
     const m=e.target.closest('.modal'); if(m) m.classList.add('hidden');
   }));
-  $$('.modal').forEach(m=>m.addEventListener('click', e=>{ if(e.target===m) m.classList.add('hidden'); }));
+  // Клик по фону закрывает окно, только если нажали именно по фону:
+  // иначе выделение текста с выходом мыши за границы окна закрывало карточку.
+  $$('.modal').forEach(m=>{
+    m.addEventListener('pointerdown', e=>{ m._onBackdrop = (e.target===m); });
+    m.addEventListener('click', e=>{
+      if (e.target!==m || !m._onBackdrop) return;
+      const sel=window.getSelection();
+      if (sel && !sel.isCollapsed) return;
+      m.classList.add('hidden');
+    });
+  });
 
   ['fSearch','fCategory','fManufacturer'].forEach(id=>on('#'+id,'input',()=>{ readFilters(); renderCards(); }));
   on('#fSort','change',e=>{
@@ -2045,7 +2055,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v28</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v29</footer>
 </body>
 </html>
 
