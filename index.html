@@ -70,16 +70,10 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.pos-row{display:grid;grid-template-columns:30px 118px 88px 1fr 108px 88px 32px;gap:6px;margin-bottom:6px;align-items:center}
-.pos-row .idx{color:var(--mut);font-size:12px;text-align:center}
-.pos-row select,.pos-row input{padding:6px 8px;font-size:13px}
-.pos-row .pos-vdesc{min-width:0}
-.pos-add{min-width:32px;height:32px}
-.pos-add-form{display:grid;grid-template-columns:150px 150px 120px 90px;gap:8px;align-items:end;background:#f8fafc;border:1px dashed var(--line);border-radius:10px;padding:10px;margin:0 0 10px 34px}
-.pos-add-form label{margin:0;font-size:12px}
-.pos-add-desc{grid-column:1/-1;font-size:12px;color:var(--mut)}
-.pf-desc-wrap{grid-column:1/-1}
-.pos-add-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center}
+.part-row{display:grid;grid-template-columns:30px 132px 88px 1fr 108px 88px 32px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row .idx{color:var(--mut);font-size:12px;text-align:center}
+.part-row input,.part-row select{padding:6px 8px;font-size:13px}
+.part-row .p-part{font-weight:600}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
 .tpl-warn{font-size:13px;color:#b3261e}
@@ -197,19 +191,13 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <label>Код 1С<input id="eCode" placeholder="Введите код 1С"></label>
       </div>
       <fieldset>
-        <legend>Маркировка по листу-шаблону</legend>
+        <legend>Части маркировки</legend>
         <div class="parts-toolbar">
           <span class="hint" id="tplStatus">—</span>
           <a class="linkbtn hidden" id="tplSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
-          <button class="linkbtn hidden" id="btnTplManual" type="button">ввести вручную</button>
-          <button class="linkbtn hidden" id="btnTplBack" type="button">вернуться к шаблону</button>
-          <button class="linkbtn hidden" id="btnNewModel" type="button">создать лист шаблона</button>
+          <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
         </div>
         <div id="tplRows"></div>
-        <div id="manualBox" class="hidden">
-          <div class="hint" id="manualHint"></div>
-          <label>Полная маркировка<input id="eMarking" placeholder="например: VC-100"></label>
-        </div>
         <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
       </fieldset>
       <div class="scheme-row">
@@ -499,16 +487,6 @@ function cardParts(c){
   if (!groups.length) return null;
   return parseByGroups(c.marking, groups);
 }
-function assembleMarking(chosen){
-  const seq=(chosen||[]).filter(Boolean);
-  let out='';
-  seq.forEach((v,i)=>{
-    out+=v.part;
-    if (i<seq.length-1) out+=v.sep||'';
-    else if ((v.sep||'')===')') out+=')';
-  });
-  return out;
-}
 
 function migrateScheme(s){
   if (!s || typeof s!=='object') return null;
@@ -536,7 +514,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v18 · шаблоны моделей · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v19 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -931,7 +909,7 @@ function openView(id){
 // ================= Создание / редактирование =================
 // Маркировка собирается из листа-шаблона модели: одна строка-позиция —
 // один выпадающий список, варианты берутся с листа.
-const tplState={key:'', groups:[], chosen:[], manual:false, addFor:-1};
+let editRows=[], tplGroups=[], tplKey='', tplWarn='';
 
 function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
@@ -943,240 +921,183 @@ function updateEditDatalists(){ fillEditDatalists(); }
 function currentModelKey(){
   return modelKeyOf({manufacturer:$('#eManufacturer').value, model:$('#eModel').value});
 }
-function resetTemplate(marking){
-  tplState.key=currentModelKey();
-  const probe={manufacturer:$('#eManufacturer').value, model:$('#eModel').value};
-  const rows=tplState.key?modelRowsOf(probe):null;
-  tplState.groups=rows&&rows.length?groupModelRows(rows):[];
-  tplState.chosen=[];
-  tplState.manual=false;
-  tplState.addFor=-1;
-  const m=String(marking||'').trim();
-  $('#eMarking').value=m;
-  if (tplState.groups.length){
-    if (m){
-      const parsed=parseByGroups(m, tplState.groups);
-      if (parsed) tplState.chosen=parsed; else tplState.manual=true;
-    }
-  } else {
-    tplState.manual=true;
-  }
-  renderTemplate();
-}
-function onTemplateKeyChange(){
-  fillEditDatalists();
-  if (currentModelKey()===tplState.key) return;
-  resetTemplate('');
-}
 function templateSheetHref(key){
   const gid=modelGids[key];
   if (!modelsUrl || gid===undefined || gid===null) return '';
   return modelsUrl+'/edit#gid='+gid;
 }
+function modelRowsFor(key){
+  if (!key) return null;
+  if (models[key]) return models[key];
+  const low=key.toLowerCase();
+  const hit=Object.keys(models).find(k=>k.toLowerCase()===low);
+  return hit?models[hit]:null;
+}
+function blankRow(){ return {part:'', sep:'-', desc:'', char:'', unit:''}; }
+
+// Строки редактора: по одной на позицию листа-шаблона.
+function rowsFromTemplate(key, marking){
+  const rows=modelRowsFor(key);
+  tplGroups=rows&&rows.length?groupModelRows(rows):[];
+  if (tplGroups.length){
+    const parsed=marking?parseByGroups(marking, tplGroups):null;
+    return tplGroups.map((g,i)=>{
+      const v=(parsed&&parsed[i])||g.variants[0]||null;
+      return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||''}
+              :blankRow();
+    });
+  }
+  if (marking) return [{part:marking, sep:'', desc:'', char:'', unit:''}];
+  return [blankRow()];
+}
 function renderTemplate(){
   const st=$('#tplStatus');
-  const hasTpl=tplState.groups.length>0;
-  if (tplState.key){
+  const hasTpl=tplGroups.length>0;
+  if (tplKey){
     st.className=hasTpl?'hint':'tpl-warn';
     st.textContent=hasTpl
-      ? 'Шаблон: лист «'+tplState.key+'» · позиций '+tplState.groups.length
-      : 'Лист-шаблон «'+tplState.key+'» не найден или пуст.';
+      ? 'Лист «'+tplKey+'» · позиций '+tplGroups.length+'. Выберите значение из списка или впишите новое — оно добавится в лист при сохранении.'
+      : 'Листа «'+tplKey+'» пока нет — он создастся при сохранении карточки.';
+    if (hasTpl && tplWarn){ st.className='tpl-warn'; st.textContent=tplWarn+' '+st.textContent; }
   } else {
     st.className='hint';
     st.textContent='Укажите производителя и модель — подставится лист-шаблон.';
   }
   const link=$('#tplSheetLink');
   if (link){
-    const href=hasTpl?templateSheetHref(tplState.key):'';
+    const href=hasTpl?templateSheetHref(tplKey):'';
     link.classList.toggle('hidden', !href);
     if (href) link.href=href;
   }
-  $('#btnTplManual').classList.toggle('hidden', !hasTpl || tplState.manual);
-  $('#btnTplBack').classList.toggle('hidden', !hasTpl || !tplState.manual);
-  $('#btnNewModel').classList.toggle('hidden', !tplState.key || hasTpl);
-  $('#tplRows').classList.toggle('hidden', tplState.manual || !hasTpl);
-  $('#manualBox').classList.toggle('hidden', !tplState.manual && hasTpl);
-  const mh=$('#manualHint');
-  if (mh){
-    mh.textContent=(tplState.manual && hasTpl)
-      ? 'Маркировка не совпала с шаблоном. Добавьте недостающее значение кнопкой «+» у нужной позиции — или сохраните текст как есть.'
-      : '';
-  }
-  renderTemplateRows();
+}
+function renderRows(){
+  $('#tplRows').innerHTML=editRows.map((r,i)=>{
+    const g=tplGroups[i];
+    const opts=g?g.variants.map(v=>`<option value="${esc(v.part)}">`).join(''):'';
+    return `<div class="part-row" data-ri="${i}">
+      <span class="idx">${i+1}</span>
+      <input class="p-part" list="dlp${i}" value="${esc(r.part||'')}" placeholder="часть">
+      <datalist id="dlp${i}">${opts}</datalist>
+      <select class="p-sep" title="Разделитель после части">${sepChoices(r.sep)}</select>
+      <input class="p-desc" value="${esc(r.desc||'')}" placeholder="описание части">
+      <input class="p-char" value="${esc(r.char||'')}" placeholder="характеристика">
+      <select class="p-unit" title="Единицы измерения">${unitChoices(r.unit)}</select>
+      <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button>
+    </div>`;
+  }).join('');
   refreshPreview();
 }
-function addFormHTML(gi,g){
-  const first=g.variants[0]||{sep:'',unit:'',desc:''};
-  const desc=(g.desc||first.desc||'');
-  return `<div class="pos-add-form" data-pi="${gi}">
-    <label>Значение<input class="pf-part" placeholder="например 160"></label>
-    <label>Разделитель<select class="pf-sep">${sepChoices(first.sep)}</select></label>
-    <label>Характеристика<input class="pf-char" placeholder="160"></label>
-    <label>Ед. изм.<input class="pf-unit" value="${esc(first.unit||'')}"></label>
-    <label class="pf-desc-wrap">Описание (показывается в карточке)<input class="pf-desc" value="${esc(desc)}" placeholder="например: Длина погружной части"></label>
-    <div class="pos-add-desc">Позиция ${gi+1}. Строка добавится в лист «${esc(tplState.key)}».</div>
-    <div class="pos-add-actions">
-      <button class="btn primary pf-save" data-pi="${gi}">Добавить в шаблон</button>
-      <button class="linkbtn pf-cancel" data-pi="${gi}">отмена</button>
-    </div>
-  </div>`;
-}
-function renderTemplateRows(){
-  if (tplState.manual || !tplState.groups.length){ $('#tplRows').innerHTML=''; return; }
-  $('#tplRows').innerHTML=tplState.groups.map((g,gi)=>{
-    const sel=tplState.chosen[gi];
-    const cur=sel||g.variants[0]||{part:'',sep:'',desc:'',char:'',unit:''};
-    const opts=g.variants.map((v,vi)=>
-      `<option value="${vi}"${v===sel?' selected':''}>${esc(v.part)}</option>`).join('');
-    const desc=cur.desc||g.desc||'';
-    const row=`<div class="pos-row" data-pi="${gi}">
-      <span class="idx">${gi+1}</span>
-      <select class="pos-sel" data-pi="${gi}"><option value="">— не выбрано —</option>${opts}</select>
-      <select class="pos-vsep" data-pi="${gi}" title="Разделитель после части">${sepChoices(cur.sep)}</select>
-      <input class="pos-vdesc" data-pi="${gi}" value="${esc(desc)}" placeholder="описание части">
-      <input class="pos-vchar" data-pi="${gi}" value="${esc(cur.char||'')}" placeholder="характеристика">
-      <select class="pos-vunit" data-pi="${gi}" title="Единицы измерения">${unitChoices(cur.unit)}</select>
-      <button class="icon-btn pos-add" data-pi="${gi}" data-tip="Добавить значение в лист-шаблон">${icon('plus')}</button>
-    </div>`;
-    return row+(tplState.addFor===gi?addFormHTML(gi,g):'');
-  }).join('');
+function rowsWithPart(){ return editRows.filter(r=>(r.part||'').trim()); }
+function assembleRows(){
+  const seq=rowsWithPart();
+  let out='';
+  seq.forEach((r,i)=>{
+    out+=(r.part||'').trim();
+    if (i<seq.length-1) out+=r.sep||'';
+    else if ((r.sep||'')===')') out+=')';
+  });
+  return out;
 }
 function refreshPreview(){
-  const box=$('#ePreview');
-  if (tplState.manual || !tplState.groups.length){
-    const m=$('#eMarking').value.trim();
-    box.innerHTML=m?`<span class="part">${esc(m)}</span>`:'<i>пусто</i>';
-    return;
-  }
-  const seq=[];
-  tplState.groups.forEach((g,i)=>{ if (tplState.chosen[i]) seq.push({v:tplState.chosen[i], gi:i}); });
+  const seq=rowsWithPart();
   let html='';
-  seq.forEach((it,k)=>{
-    html+=`<span class="part pc${it.gi%8}" data-tip="${esc(partTip(it.v))}">${esc(it.v.part)}</span>`;
-    if (k<seq.length-1) html+=esc(it.v.sep||'');
-    else if ((it.v.sep||'')===')') html+=')';
+  seq.forEach((r,k)=>{
+    html+=`<span class="part pc${k%8}" data-tip="${esc(partTip(r))}">${esc(r.part.trim())}</span>`;
+    if (k<seq.length-1) html+=esc(r.sep||'');
+    else if ((r.sep||'')===')') html+=')';
   });
-  box.innerHTML=html||'<i>пусто</i>';
+  $('#ePreview').innerHTML=html||'<i>пусто</i>';
 }
-// Правка строки шаблона прямо в карточке: значение пишется в лист модели.
-function saveVariant(v, oldSep){
-  if (!tplState.key || !v) return;
-  postToSheet({action:'updateVariant', model:tplState.key, pos:v.pos, part:v.part,
-               oldSep:oldSep===undefined?v.sep:oldSep, sep:v.sep,
-               desc:v.desc, char:v.char, unit:v.unit})
-    .catch(()=>setBanner('Изменение шаблона не отправлено в Google Таблицу — проверьте связь.','warn'));
-}
-function templateChange(e){
+function rowInput(e){
+  const row=e.target.closest('.part-row'); if(!row) return;
+  const i=+row.dataset.ri, r=editRows[i]; if(!r) return;
   const t=e.target;
-  const pi=t.dataset?t.dataset.pi:undefined;
-  if (pi===undefined || pi==='') return;
-  const gi=+pi;
-  const g=tplState.groups[gi];
-  if (!g) return;
-  if (t.classList.contains('pos-sel')){
-    tplState.chosen[gi]= t.value===''?null:g.variants[+t.value];
-    renderTemplateRows();
-    refreshPreview();
-    return;
-  }
-  const v=tplState.chosen[gi]||g.variants[0];
-  if (!v) return;
-  const oldSep=v.sep;
-  if (t.classList.contains('pos-vsep')){
-    v.sep=t.value;
-    saveVariant(v, oldSep);
-    refreshPreview();
-  } else if (t.classList.contains('pos-vdesc')){
-    v.desc=t.value.trim();
-    saveVariant(v, oldSep);
-  } else if (t.classList.contains('pos-vchar')){
-    v.char=t.value.trim();
-    saveVariant(v, oldSep);
-  } else if (t.classList.contains('pos-vunit')){
-    v.unit=t.value;
-    saveVariant(v, oldSep);
-  }
-}
-function templateRowsClick(e){
-  const add=e.target.closest('.pos-add');
-  if (add){
-    const gi=+add.dataset.pi;
-    tplState.addFor=(tplState.addFor===gi?-1:gi);
-    renderTemplateRows();
-    return;
-  }
-  const cancel=e.target.closest('.pf-cancel');
-  if (cancel){ tplState.addFor=-1; renderTemplateRows(); return; }
-  const save=e.target.closest('.pf-save');
-  if (save){ addVariant(+save.dataset.pi, save.closest('.pos-add-form')); }
-}
-function addVariant(gi, form){
-  const g=tplState.groups[gi];
-  if (!g || !form) return;
-  const part=form.querySelector('.pf-part').value.trim();
-  if (!part){ alert('Укажите значение части'); return; }
-  const sep=form.querySelector('.pf-sep').value;
-  const char=form.querySelector('.pf-char').value.trim();
-  const unit=form.querySelector('.pf-unit').value.trim();
-  const descField=form.querySelector('.pf-desc');
-  const desc=(descField?descField.value.trim():'')||g.desc||(g.variants[0]&&g.variants[0].desc)||'';
-  const keep=tplState.manual?$('#eMarking').value.trim():assembleMarking(tplState.chosen);
-  const oldGroups=tplState.groups;
-  const oldChosen=tplState.chosen.slice();
-  busy(true);
-  postToSheet({action:'addVariant', model:tplState.key, pos:g.pos, part:part,
-               sep:sep, desc:desc, char:char, unit:unit})
-    .then(()=>{
-      setTimeout(()=>{
-        loadCards().then(()=>{
-          busy(false);
-          afterAddVariant(g.pos, part, sep, keep, oldGroups, oldChosen);
-        });
-      }, 1600);
-    })
-    .catch(()=>{ busy(false); alert('Не удалось отправить значение в таблицу.'); });
-}
-function afterAddVariant(pos, part, sep, keep, oldGroups, oldChosen){
-  resetTemplate(keep);
-  if (!tplState.groups.length) return;
-  if (!parseByGroups(keep, tplState.groups)){
-    tplState.chosen=tplState.groups.map(g=>{
-      const oi=oldGroups.findIndex(x=>x.pos===g.pos);
-      const prev=oi>=0?oldChosen[oi]:null;
-      if (!prev) return null;
-      return g.variants.find(v=>v.part===prev.part && (v.sep||'')===(prev.sep||''))||null;
-    });
-    const gi=tplState.groups.findIndex(x=>x.pos===pos);
-    if (gi>=0){
-      const v=tplState.groups[gi].variants.find(x=>x.part===part && (x.sep||'')===(sep||''));
-      if (v) tplState.chosen[gi]=v;
+  if (t.classList.contains('p-part')){
+    const old=(r.part||'').trim();
+    const nv=t.value.trim();
+    r.part=t.value;
+    // вписали новое значение вместо старого — характеристика тянется за ним
+    if (old && nv && old!==nv && (r.char||'').trim()===old){
+      r.char=nv;
+      const ch=row.querySelector('.p-char');
+      if (ch) ch.value=nv;
     }
-    tplState.manual=false;
+    if (e.type==='change' && tplGroups[i]){
+      const v=tplGroups[i].variants.find(x=>x.part===t.value.trim());
+      if (v){
+        r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
+        renderRows();
+        return;
+      }
+    }
   }
-  tplState.addFor=-1;
-  $('#eMarking').value=keep;
-  renderTemplate();
+  else if (t.classList.contains('p-sep')) r.sep=t.value;
+  else if (t.classList.contains('p-desc')) r.desc=t.value;
+  else if (t.classList.contains('p-char')) r.char=t.value;
+  else if (t.classList.contains('p-unit')) r.unit=t.value;
+  else return;
+  refreshPreview();
 }
-function setManual(on){
-  if (on){
-    if (!tplState.manual) $('#eMarking').value=assembleMarking(tplState.chosen)||$('#eMarking').value;
-    tplState.manual=true;
-  } else {
-    tplState.chosen=parseByGroups($('#eMarking').value.trim(), tplState.groups)||[];
-    tplState.manual=false;
+function rowClick(e){
+  if (!e.target.closest('.p-del')) return;
+  const row=e.target.closest('.part-row');
+  editRows.splice(+row.dataset.ri,1);
+  if (!editRows.length) editRows.push(blankRow());
+  renderRows();
+}
+function addRow(){
+  editRows.push(blankRow());
+  renderRows();
+}
+function openEditor(marking){
+  tplKey=currentModelKey();
+  const rows=modelRowsFor(tplKey);
+  tplGroups=rows&&rows.length?groupModelRows(rows):[];
+  const m=String(marking||'').trim();
+  const parsedOk=!(m && tplGroups.length && !parseByGroups(m, tplGroups));
+  editRows=rowsFromTemplate(tplKey, m);
+  tplWarn=parsedOk?'':'Маркировка не совпала с шаблоном — проверьте значения частей.';
+  renderTemplate();
+  renderRows();
+}
+function onTemplateKeyChange(){
+  fillEditDatalists();
+  const key=currentModelKey();
+  if (key===tplKey) return;
+  tplKey=key;
+  editRows=rowsFromTemplate(key,'');
+  renderTemplate();
+  renderRows();
+}
+// Что изменить на листе-шаблоне после сохранения карточки.
+function templateJobs(rows, key){
+  if (!key) return [];
+  const known=modelRowsFor(key)||[];
+  const byPos={};
+  known.forEach(v=>{ (byPos[v.pos]=byPos[v.pos]||[]).push(v); });
+  const jobs=[];
+  rows.forEach((r,i)=>{
+    const part=(r.part||'').trim();
+    if (!part) return;
+    const pos=i+1;
+    const hit=(byPos[pos]||[]).find(v=>v.part===part && (v.sep||'')===(r.sep||''));
+    if (!hit){
+      jobs.push({action:'addVariant', model:key, pos:pos, part:part, sep:r.sep||'',
+                 desc:r.desc||'', char:r.char||'', unit:r.unit||''});
+    } else if ((hit.desc||'')!==(r.desc||'') || (hit.char||'')!==(r.char||'') || (hit.unit||'')!==(r.unit||'')){
+      jobs.push({action:'updateVariant', model:key, pos:pos, part:part, oldSep:hit.sep,
+                 sep:r.sep||'', desc:r.desc||'', char:r.char||'', unit:r.unit||''});
+    }
+  });
+  return jobs;
+}
+async function pushTemplateChanges(rows, key){
+  const jobs=templateJobs(rows, key);
+  if (!jobs.length) return;
+  for (const job of jobs){
+    try{ await postToSheet(job); }catch(e){}
   }
-  tplState.addFor=-1;
-  renderTemplate();
-}
-function createModelSheet(){
-  const key=tplState.key;
-  if (!key) return;
-  if (!confirm('Создать в Google Таблице лист-шаблон «'+key+'»?')) return;
-  busy(true);
-  postToSheet({action:'newModel', name:key})
-    .catch(()=>{})
-    .then(()=>{ busy(false); setTimeout(loadCards,1500); });
-  alert('Лист «'+key+'» создаётся.\nЗаполните его в Google Таблицах (позиция, часть, разделитель, описание) и нажмите «Обновить».');
+  setTimeout(loadCards, 1500);
 }
 
 function openEdit(src, mode){
@@ -1195,38 +1116,24 @@ function openEdit(src, mode){
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
-  tplState.key=''; tplState.groups=[]; tplState.chosen=[]; tplState.manual=false;
   fillEditDatalists();
-  resetTemplate(base.marking||'');
+  openEditor(base.marking||'');
   updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
 }
 function collectCard(){
-  const manufacturer=$('#eManufacturer').value.trim();
-  const model=$('#eModel').value.trim();
-  let marking='', sep='-';
-  if (tplState.manual || !tplState.groups.length){
-    marking=$('#eMarking').value.trim();
-    if (!marking){ alert('Укажите маркировку'); return null; }
-  } else {
-    const missing=tplState.groups.findIndex((g,i)=>!tplState.chosen[i]);
-    if (missing>=0){
-      alert('Выберите значение для позиции '+(missing+1)+': '+((tplState.groups[missing].desc)||'часть маркировки'));
-      return null;
-    }
-    marking=assembleMarking(tplState.chosen);
-    const first=tplState.chosen.find(Boolean);
-    if (first) sep=first.sep||'';
-  }
+  const marking=assembleRows();
+  if (!marking){ alert('Добавьте хотя бы одну часть маркировки'); return null; }
+  const first=rowsWithPart()[0];
   const codeVal=$('#eCode').value.trim();
   return {
     id: codeVal || editId || uid(),
     date: editId ? ((cards.find(c=>String(c.id)===String(editId))||{}).date||nowStr()) : nowStr(),
     category: $('#eCategory').value.trim(),
-    manufacturer: manufacturer,
-    model: model,
+    manufacturer: $('#eManufacturer').value.trim(),
+    model: $('#eModel').value.trim(),
     marking: marking,
-    sep: sep||'-',
+    sep: first?(first.sep||'-'):'-',
     comment: $('#eComment').value.trim(),
     scheme: draftScheme, schemeType: draftScheme?draftScheme.type:0,
     schemeText: draftSchemeText, basedOn: editBaseOn
@@ -1234,8 +1141,11 @@ function collectCard(){
 }
 async function saveCard(){
   const card=collectCard(); if(!card) return;
+  const rows=JSON.parse(JSON.stringify(editRows));
+  const key=tplKey;
   await persistCard(card);
   $('#editModal').classList.add('hidden');
+  pushTemplateChanges(rows, key);
 }
 
 // ================= Редактор схемы =================
@@ -1606,12 +1516,10 @@ function init(){
   on('#eManufacturer','input',onTemplateKeyChange);
   on('#eModel','input',onTemplateKeyChange);
 
-  on('#tplRows','change',templateChange);
-  on('#tplRows','click',templateRowsClick);
-  on('#btnTplManual','click',()=>setManual(true));
-  on('#btnTplBack','click',()=>setManual(false));
-  on('#btnNewModel','click',createModelSheet);
-  on('#eMarking','input',refreshPreview);
+  on('#btnAddPart','click',addRow);
+  on('#tplRows','input',rowInput);
+  on('#tplRows','change',rowInput);
+  on('#tplRows','click',rowClick);
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
@@ -1643,6 +1551,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v18</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v19</footer>
 </body>
 </html>
