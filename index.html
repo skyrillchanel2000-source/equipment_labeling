@@ -557,7 +557,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v27 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v28 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -924,7 +924,7 @@ function renderCards(){
     if (man && c.manufacturer!==man) return false;
     if (q){
       const ps=cardParts(c)||[];
-      const hay=[c.marking||'',c.model,c.category,c.manufacturer,c.comment,
+      const hay=[c.id||'', c.marking||'', c.marking1c||'', c.model, c.category, c.manufacturer, c.comment,
         ...ps.flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
       if (!searchMatch(hay, q)) return false;
     }
@@ -2045,7 +2045,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v27</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v28</footer>
 </body>
 </html>
 
