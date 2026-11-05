@@ -70,10 +70,17 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.part-row{display:grid;grid-template-columns:24px minmax(140px,1fr) 76px minmax(120px,1fr) 96px 74px 54px 32px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:24px 20px minmax(140px,1fr) 76px minmax(120px,1fr) 96px 74px 32px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .part-row input,.part-row select{padding:6px 8px;font-size:13px}
 .part-row .p-part{font-weight:600}
+.p-grip{cursor:grab;color:var(--mut);display:inline-flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
+.p-grip:hover{color:var(--acc)}
+.p-grip:active{cursor:grabbing}
+.p-grip svg{width:16px;height:16px}
+.part-row.dragging{opacity:0;pointer-events:none}
+.part-row.drag-ghost{position:fixed;z-index:80;margin:0;background:#fff;border:1px solid var(--acc);border-radius:8px;box-shadow:0 14px 30px rgba(15,23,42,.22);pointer-events:none;opacity:.97;transform:scale(1.015)}
+body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
 .p-pick{position:relative}
 .p-pick .p-part{width:100%;padding-right:22px}
 .p-drop{position:absolute;right:1px;top:1px;bottom:1px;width:20px;border:0;background:transparent;color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -87,10 +94,6 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .p-opt b{font-weight:600}
 .p-opt span{display:block;color:var(--mut);font-size:12px}
 .p-empty{padding:7px 9px;color:var(--mut);font-size:12px}
-.p-move{display:inline-flex;gap:2px}
-.p-move .icon-btn{min-width:26px;width:26px;height:26px;padding:0;border-radius:6px}
-.p-move .icon-btn svg{width:13px;height:13px}
-.p-move .icon-btn[disabled]{opacity:.35;cursor:default;border-color:var(--line);color:var(--ink);background:#fff}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
 .tpl-warn{font-size:13px;color:#b3261e}
@@ -536,7 +539,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v24 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v25 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1122,11 +1125,10 @@ function renderTemplate(){
   }
 }
 function renderRows(){
-  $('#tplRows').innerHTML=editRows.map((r,i)=>{
-    const g=groupForRow(r);
-    const last=editRows.length-1;
-    return `<div class="part-row" data-ri="${i}">
+  const wrap=$('#tplRows');
+  wrap.innerHTML=editRows.map((r,i)=>`<div class="part-row" data-ri="${i}">
       <span class="idx">${i+1}</span>
+      <span class="p-grip" data-tip="Зажмите и потяните — строки сдвинутся">${icon('grip')}</span>
       <div class="p-pick">
         <input class="p-part" autocomplete="off" value="${esc(r.part||'')}" placeholder="часть">
         <button type="button" class="p-drop" tabindex="-1" data-tip="Значения из листа-шаблона">${icon('down')}</button>
@@ -1136,13 +1138,10 @@ function renderRows(){
       <input class="p-desc" value="${esc(r.desc||'')}" placeholder="описание части">
       <input class="p-char" value="${esc(r.char||'')}" placeholder="характеристика">
       <select class="p-unit" title="Единицы измерения">${unitChoices(r.unit)}</select>
-      <span class="p-move">
-        <button type="button" class="icon-btn p-up" data-tip="Переместить выше"${i===0?' disabled':''}>${icon('up')}</button>
-        <button type="button" class="icon-btn p-down" data-tip="Переместить ниже"${i===last?' disabled':''}>${icon('down')}</button>
-      </span>
       <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button>
-    </div>`;
-  }).join('');
+    </div>`).join('');
+  // строка DOM помнит свой объект данных: после перетаскивания порядок берётся из DOM
+  [...wrap.querySelectorAll('.part-row')].forEach((el,i)=>{ el._row=editRows[i]; });
   refreshPreview();
 }
 function rowsWithPart(){ return editRows.filter(r=>(r.part||'').trim()); }
@@ -1202,16 +1201,6 @@ function rowInput(e){
   else return;
   refreshPreview();
 }
-// ================= Перемещение частей маркировки =================
-function moveRow(i, delta){
-  const j=i+delta;
-  if (j<0 || j>=editRows.length) return;
-  const t=editRows[i]; editRows[i]=editRows[j]; editRows[j]=t;
-  renderRows();
-  const row=$('#tplRows .part-row[data-ri="'+j+'"]');
-  if (row){ const inp=row.querySelector('.p-part'); if (inp) inp.focus(); }
-  refreshPreview();
-}
 // ================= Выпадающий список частей =================
 function partVariantsFor(r){
   const g=groupForRow(r);
@@ -1258,6 +1247,123 @@ function menuKey(e){
     if (row){ const inp=row.querySelector('.p-part'); if (inp) inp.focus(); }
   }
 }
+// ===== Перетаскивание строк за ручку (ghost + плавный сдвиг) =====
+let pDrag=null;
+function relabelRows(){
+  $$('#tplRows .part-row').forEach((el,i)=>{ const n=el.querySelector('.idx'); if (n) n.textContent=i+1; });
+}
+function ghostMove(x,y){
+  if (!pDrag || !pDrag.clone) return;
+  pDrag.clone.style.left=(x-pDrag.offX)+'px';
+  pDrag.clone.style.top =(y-pDrag.offY)+'px';
+}
+function flipRows(wrap, skip, mutate){
+  const rows=[...wrap.querySelectorAll('.part-row')].filter(el=>el!==skip);
+  const tops=new Map(rows.map(el=>[el, el.offsetTop]));
+  mutate();
+  rows.forEach(el=>{
+    const d=tops.get(el)-el.offsetTop;
+    if (!d) return;
+    if (el.__flip){ try{ el.__flip.cancel(); }catch(e){} }
+    el.__flip=el.animate(
+      [{transform:'translateY('+d+'px)'},{transform:'translateY(0)'}],
+      {duration:220, easing:'cubic-bezier(.2,.7,.3,1)'}
+    );
+  });
+}
+function beginRowDrag(){
+  const row=pDrag.row, r=row.getBoundingClientRect();
+  const clone=row.cloneNode(true);
+  const from=row.querySelectorAll('input,select,textarea');
+  const to=clone.querySelectorAll('input,select,textarea');
+  from.forEach((el,i)=>{ if (to[i]) to[i].value=el.value; });
+  clone.classList.add('drag-ghost');
+  clone.style.width=r.width+'px';
+  clone.style.height=r.height+'px';
+  document.body.appendChild(clone);
+  pDrag.clone=clone;
+  ghostMove(pDrag.x0, pDrag.y0);
+  row.classList.add('dragging');
+  document.body.classList.add('row-sorting');
+  hideTip();
+}
+function dragAutoScroll(y){
+  const host=document.getElementById('editModal');
+  if (!host) return;
+  const r=host.getBoundingClientRect(), edge=52;
+  if (y<r.top+edge) host.scrollTop-=Math.ceil((r.top+edge-y)/2);
+  else if (y>r.bottom-edge) host.scrollTop+=Math.ceil((y-(r.bottom-edge))/2);
+}
+function rowTargetAt(y){
+  const wrap=$('#tplRows');
+  const rows=[...wrap.querySelectorAll('.part-row')].filter(el=>el!==pDrag.row);
+  for (const el of rows){
+    const r=el.getBoundingClientRect();
+    if (y>=r.top && y<=r.bottom) return {el, after:y>r.top+r.height/2};
+  }
+  if (rows.length){
+    const f=rows[0].getBoundingClientRect(), l=rows[rows.length-1].getBoundingClientRect();
+    if (y<f.top) return {el:rows[0], after:false};
+    if (y>l.bottom) return {el:rows[rows.length-1], after:true};
+  }
+  return null;
+}
+function rowMoveTo(y){
+  if (!pDrag || !pDrag.clone) return;
+  const t=rowTargetAt(y); if (!t) return;
+  const wrap=$('#tplRows'), row=pDrag.row;
+  const ref=t.after?t.el.nextElementSibling:t.el;
+  if (ref===row || row.nextElementSibling===ref) return;
+  flipRows(wrap, row, ()=>wrap.insertBefore(row, ref));
+  relabelRows();
+}
+function partsPointerDown(e){
+  if (e.pointerType==='mouse' && e.button!==0) return;
+  const grip=e.target.closest('.p-grip');
+  if (!grip) return;
+  const row=grip.closest('.part-row');
+  if (!row) return;
+  e.preventDefault();
+  closePartMenus();
+  const r=row.getBoundingClientRect();
+  pDrag={row, x0:e.clientX, y0:e.clientY, offX:e.clientX-r.left, offY:e.clientY-r.top, clone:null};
+  window.addEventListener('pointermove', partsPointerMove);
+  window.addEventListener('pointerup', partsPointerEnd);
+  window.addEventListener('pointercancel', partsPointerEnd);
+}
+function partsPointerMove(e){
+  if (!pDrag) return;
+  if (!pDrag.clone){
+    if (Math.abs(e.clientX-pDrag.x0)<3 && Math.abs(e.clientY-pDrag.y0)<3) return;
+    beginRowDrag();
+  }
+  ghostMove(e.clientX, e.clientY);
+  dragAutoScroll(e.clientY);
+  rowMoveTo(e.clientY);
+}
+function partsPointerEnd(){
+  if (!pDrag) return;
+  const row=pDrag.row, clone=pDrag.clone;
+  window.removeEventListener('pointermove', partsPointerMove);
+  window.removeEventListener('pointerup', partsPointerEnd);
+  window.removeEventListener('pointercancel', partsPointerEnd);
+  document.body.classList.remove('row-sorting');
+  row.classList.remove('dragging');
+  if (clone){
+    const r=row.getBoundingClientRect();
+    const cx=parseFloat(clone.style.left)||0, cy=parseFloat(clone.style.top)||0;
+    clone.style.transition='transform .18s ease, opacity .18s ease';
+    clone.style.transform='translate('+(r.left-cx)+'px,'+(r.top-cy)+'px) scale(1)';
+    clone.style.opacity='0';
+    setTimeout(()=>clone.remove(), 220);
+  }
+  const wrap=$('#tplRows');
+  editRows=[...wrap.querySelectorAll('.part-row')].map(el=>el._row).filter(Boolean);
+  [...wrap.querySelectorAll('.part-row')].forEach((el,i)=>{ el.dataset.ri=i; el._row=editRows[i]; });
+  relabelRows();
+  refreshPreview();
+  pDrag=null;
+}
 function rowClick(e){
   const row=e.target.closest('.part-row'); if (!row) return;
   const i=+row.dataset.ri;
@@ -1267,8 +1373,6 @@ function rowClick(e){
     renderRows();
     return;
   }
-  if (e.target.closest('.p-up')){ moveRow(i,-1); return; }
-  if (e.target.closest('.p-down')){ moveRow(i,1); return; }
   if (e.target.closest('.p-drop')){
     const inp=row.querySelector('.p-part');
     if (inp){ inp.focus(); togglePartMenu(inp); }
@@ -1771,6 +1875,7 @@ function init(){
   on('#tplRows','input',rowInput);
   on('#tplRows','change',rowInput);
   on('#tplRows','click',rowClick);
+  on('#tplRows','pointerdown',partsPointerDown);
   on('#tplRows','keydown',e=>{
     if (e.target.classList.contains('p-part')){
       if (e.key==='ArrowDown'){
@@ -1819,7 +1924,8 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v24</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v25</footer>
 </body>
 </html>
+
 
