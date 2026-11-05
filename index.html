@@ -289,7 +289,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbxfxDswNRntsjJRzFb8C7909FVunoOk8_CvQhzZcoHEDjUQuysHR6xj_XogryXU1PSz/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxJR_oyjWYJmq3pJS3cicmyT3uwtj6lbGWw9ADdl0Vda8bC0kAxDanStvESCGNueygx/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -514,7 +514,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v19 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v21 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -614,6 +614,10 @@ async function loadCards(){
         }
         if (r.gids && typeof r.gids==='object') modelGids=r.gids;
         if (r.url) modelsUrl=r.url;
+        if (!r.url || !r.gids){
+          msg='Развёрнута старая версия веб-приложения: новые части и правки шаблона не сохранятся. Разверните новую версию Код.gs.';
+          cls='warn';
+        }
       } else {
         raw = await fetchJSON(API_URL+sep+'action=list'+bust);
         if(!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
@@ -910,6 +914,7 @@ function openView(id){
 // Маркировка собирается из листа-шаблона модели: одна строка-позиция —
 // один выпадающий список, варианты берутся с листа.
 let editRows=[], tplGroups=[], tplKey='', tplWarn='';
+let editOrig='', editOrigMarking='', tplParsedOk=true;
 
 function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
@@ -935,14 +940,41 @@ function modelRowsFor(key){
 }
 function blankRow(){ return {part:'', sep:'-', desc:'', char:'', unit:''}; }
 
+// Частичное разложение: подставляет всё, что совпало с шаблоном, пропуская
+// позиции, значения которых в шаблоне ещё нет (например, новая длина 160).
+function partialParse(mark, groups){
+  const s=String(mark||'');
+  if (!groups || !groups.length || !s) return null;
+  const out=new Array(groups.length).fill(null);
+  let pos=0, hits=0;
+  for (let gi=0; gi<groups.length && pos<s.length; gi++){
+    const vs=groups[gi].variants;
+    for (let k=0;k<vs.length;k++){
+      const v=vs[k];
+      if (s.indexOf(v.part,pos)!==pos) continue;
+      let p=pos+v.part.length;
+      const sep=v.sep||'';
+      if (sep){
+        if (s.indexOf(sep,p)!==p) continue;
+        p+=sep.length;
+      }
+      out[gi]=v; pos=p; hits++;
+      break;
+    }
+  }
+  return hits?out:null;
+}
+
 // Строки редактора: по одной на позицию листа-шаблона.
 function rowsFromTemplate(key, marking){
   const rows=modelRowsFor(key);
   tplGroups=rows&&rows.length?groupModelRows(rows):[];
   if (tplGroups.length){
     const parsed=marking?parseByGroups(marking, tplGroups):null;
+    const loose=parsed?null:(marking?partialParse(marking, tplGroups):null);
+    const take=parsed||loose;
     return tplGroups.map((g,i)=>{
-      const v=(parsed&&parsed[i])||g.variants[0]||null;
+      const v=(take&&take[i])||(parsed?null:g.variants[0])||null;
       return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||''}
               :blankRow();
     });
@@ -1066,6 +1098,7 @@ function onTemplateKeyChange(){
   if (key===tplKey) return;
   tplKey=key;
   editRows=rowsFromTemplate(key,'');
+  editOrig=''; editOrigMarking=''; tplParsedOk=true;
   renderTemplate();
   renderRows();
 }
@@ -1097,7 +1130,12 @@ async function pushTemplateChanges(rows, key){
   for (const job of jobs){
     try{ await postToSheet(job); }catch(e){}
   }
-  setTimeout(loadCards, 1500);
+  setTimeout(async ()=>{
+    await loadCards();
+    if (templateJobs(rows, key).length){
+      setBanner('Части не записались в лист «'+key+'»: в таблице их нет. Проверьте, что развёрнута новая версия скрипта Код.gs.','warn');
+    }
+  }, 1800);
 }
 
 function openEdit(src, mode){
@@ -1118,11 +1156,19 @@ function openEdit(src, mode){
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
   fillEditDatalists();
   openEditor(base.marking||'');
+  editOrigMarking=String(base.marking||'').trim();
+  editOrig=JSON.stringify(editRows);
+  tplParsedOk=!(editOrigMarking && tplGroups.length && !parseByGroups(editOrigMarking, tplGroups));
   updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
 }
 function collectCard(){
-  const marking=assembleRows();
+  // если маркировка не разложилась по шаблону и её не трогали — сохраняем как есть,
+  // чтобы подстановка значений по умолчанию её не испортила
+  let marking=assembleRows();
+  if (!tplParsedOk && editOrigMarking && JSON.stringify(editRows)===editOrig){
+    marking=editOrigMarking;
+  }
   if (!marking){ alert('Добавьте хотя бы одну часть маркировки'); return null; }
   const first=rowsWithPart()[0];
   const codeVal=$('#eCode').value.trim();
@@ -1551,6 +1597,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v19</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v21</footer>
 </body>
 </html>
