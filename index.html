@@ -85,7 +85,7 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.part-row{display:grid;grid-template-columns:24px 20px minmax(140px,1fr) 76px minmax(120px,1fr) 96px 74px 32px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:24px 20px 30px minmax(140px,1fr) 30px minmax(60px,96px) minmax(120px,1fr) 96px 74px 32px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .part-row input,.part-row select{padding:6px 8px;font-size:13px}
 .part-row .p-part{font-weight:600}
@@ -101,6 +101,12 @@ body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!i
 .p-drop{position:absolute;right:1px;top:1px;bottom:1px;width:20px;border:0;background:transparent;color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .p-drop:hover{color:var(--acc)}
 .p-drop svg{width:13px;height:13px}
+.p-pick .p-sep{width:100%;padding-right:22px}
+.p-brk{height:30px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--mut);cursor:pointer;font:600 15px/1 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden}
+.p-brk:hover{color:var(--acc);border-color:var(--acc)}
+.p-brk.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.p-brk:disabled{opacity:.3;cursor:default}
+.p-brk:disabled:hover{color:var(--mut);border-color:var(--line)}
 .p-menu{position:absolute;left:0;right:-40px;top:calc(100% + 2px);z-index:40;max-height:240px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.16)}
 .p-menu.hidden{display:none}
 .p-opt{display:block;width:100%;text-align:left;padding:6px 9px;border:0;border-bottom:1px solid #eef2f7;background:none;font:inherit;font-size:13px;cursor:pointer}
@@ -235,6 +241,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         </div>
         <div id="tplRows"></div>
         <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
+        <div class="hint">Скобки вокруг значения части — кнопки «(» и «)» в строке; Shift+клик убирает одну скобку, повторный клик добавляет вторую.</div>
       </fieldset>
       <div class="scheme-row">
         <button class="icon-btn" id="btnOpenScheme" data-icon="cpu" data-tip="Создать / изменить схему подключения"></button>
@@ -325,7 +332,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbxGucPcDU40Xr3gm9jj7UGHD3C0CRBs46SP2czdPIytXmw0itdCLq43ywbcdBD-5151/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby5QQeJG1VBKwqm_Xy7GN-yNcxb518gusvosO_km-fNk-Ff8LXuF70ti2jw7unPDgfe/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -557,7 +564,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v29 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v30 · скобки в частях · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -828,7 +835,7 @@ function markingHTML(card){
   parts.forEach((p,i)=>{
     html+=`<span class="part pc${i%8}" data-pidx="${i}" data-tip="${esc(partTip(p))}">${esc(p.part)}</span>`;
     if (i<parts.length-1) html+=esc(p.sep||'');
-    else if ((p.sep||'')===')') html+=')';
+    else html+=esc(closeBrackets(p.sep));
   });
   return html||'<i>—</i>';
 }
@@ -1135,6 +1142,21 @@ function modelRowsFor(key){
   return hit?models[hit]:null;
 }
 function blankRow(){ return {part:'', sep:'-', desc:'', char:'', unit:'', pos:null}; }
+// Скобки стоят вплотную к значению части, поэтому в разделителе они лежат
+// с краю: «(» — в конце разделителя предыдущей строки, «)» — в начале своего.
+const openBrackets  = s => (String(s==null?'':s).match(/\(+$/)||[''])[0];
+const closeBrackets = s => (String(s==null?'':s).match(/^\)+/)||[''])[0];
+function rowOpen(i){ return i>0 && editRows[i-1] ? openBrackets(editRows[i-1].sep) : ''; }
+function rowClose(i){ return editRows[i] ? closeBrackets(editRows[i].sep) : ''; }
+function setRowOpen(i, val){
+  if (i<=0 || !editRows[i-1]) return;
+  const p=editRows[i-1];
+  p.sep=String(p.sep==null?'':p.sep).replace(/\(+$/,'')+val;
+}
+function setRowClose(i, val){
+  const r=editRows[i]; if (!r) return;
+  r.sep=val+String(r.sep==null?'':r.sep).replace(/^\)+/,'');
+}
 // Позиция строки в листе-шаблоне едет вместе со строкой: после перемещения
 // правка всё равно должна попасть в свою позицию листа.
 function groupForRow(r){
@@ -1210,20 +1232,31 @@ function renderTemplate(){
 }
 function renderRows(){
   const wrap=$('#tplRows');
-  wrap.innerHTML=editRows.map((r,i)=>`<div class="part-row" data-ri="${i}">
+  wrap.innerHTML=editRows.map((r,i)=>{
+    const op=i>0?rowOpen(i):'', cl=rowClose(i);
+    return `<div class="part-row" data-ri="${i}">
       <span class="idx">${i+1}</span>
       <span class="p-grip" data-tip="Зажмите и потяните — строки сдвинутся">${icon('grip')}</span>
+      <button type="button" class="p-brk p-brk-open${op?' on':''}" data-brk="open"${i>0?'':' disabled'}
+        data-tip="${i>0?'Скобка «(» перед значением — встаёт после разделителя предыдущей части. Shift+клик убирает одну.':'У первой части нет предыдущего разделителя — открывающую скобку поставить некуда'}">${esc(op||'(')}</button>
       <div class="p-pick">
         <input class="p-part" autocomplete="off" value="${esc(r.part||'')}" placeholder="часть">
         <button type="button" class="p-drop" tabindex="-1" data-tip="Значения из листа-шаблона">${icon('down')}</button>
         <div class="p-menu hidden"></div>
       </div>
-      <select class="p-sep" title="Разделитель после части">${sepChoices(r.sep)}</select>
+      <button type="button" class="p-brk p-brk-close${cl?' on':''}" data-brk="close"
+        data-tip="Скобка «)» сразу после значения. Shift+клик убирает одну.">${esc(cl||')')}</button>
+      <div class="p-pick p-sep-pick">
+        <input class="p-sep" autocomplete="off" value="${esc(r.sep||'')}" placeholder="разделитель"
+          data-tip="Разделитель после части — можно вписать любые символы">
+        <button type="button" class="p-drop p-sep-drop" tabindex="-1" data-tip="Готовые разделители">${icon('down')}</button>
+        <div class="p-menu p-sep-menu hidden"></div>
+      </div>
       <input class="p-desc" value="${esc(r.desc||'')}" placeholder="описание части">
       <input class="p-char" value="${esc(r.char||'')}" placeholder="характеристика">
       <select class="p-unit" title="Единицы измерения">${unitChoices(r.unit)}</select>
       <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button>
-    </div>`).join('');
+    </div>`; }).join('');
   // строка DOM помнит свой объект данных: после перетаскивания порядок берётся из DOM
   [...wrap.querySelectorAll('.part-row')].forEach((el,i)=>{ el._row=editRows[i]; });
   refreshPreview();
@@ -1234,8 +1267,9 @@ function assembleRows(){
   let out='';
   seq.forEach((r,i)=>{
     out+=(r.part||'').trim();
+    // у последней части разделитель не нужен, но закрывающие скобки остаются
     if (i<seq.length-1) out+=r.sep||'';
-    else if ((r.sep||'')===')') out+=')';
+    else out+=closeBrackets(r.sep);
   });
   return out;
 }
@@ -1245,7 +1279,7 @@ function refreshPreview(){
   seq.forEach((r,k)=>{
     html+=`<span class="part pc${k%8}" data-tip="${esc(partTip(r))}">${esc(r.part.trim())}</span>`;
     if (k<seq.length-1) html+=esc(r.sep||'');
-    else if ((r.sep||'')===')') html+=')';
+    else html+=esc(closeBrackets(r.sep));
   });
   $('#ePreview').innerHTML=html||'<i>пусто</i>';
 }
@@ -1451,6 +1485,26 @@ function partsPointerEnd(){
 function rowClick(e){
   const row=e.target.closest('.part-row'); if (!row) return;
   const i=+row.dataset.ri;
+  const brk=e.target.closest('.p-brk');
+  if (brk){
+    const isOpen=brk.dataset.brk==='open';
+    if (isOpen && i===0) return;
+    const cur=isOpen?rowOpen(i):rowClose(i);
+    const add=isOpen?'(':')';
+    setBracket(i, isOpen, e.shiftKey ? cur.slice(0,-1) : (cur+add).slice(0,3));
+    renderRows();
+    return;
+  }
+  if (e.target.closest('.p-sep-drop')){
+    const inp=row.querySelector('.p-sep');
+    if (inp){ inp.focus(); toggleSepMenu(inp); }
+    return;
+  }
+  if (e.target.closest('.p-sep-opt')){
+    const r=editRows[i];
+    if (r){ r.sep=e.target.closest('.p-sep-opt').dataset.v||''; renderRows(); }
+    return;
+  }
   if (e.target.closest('.p-del')){
     editRows.splice(i,1);
     if (!editRows.length) editRows.push(blankRow());
@@ -1464,6 +1518,25 @@ function rowClick(e){
   }
   const opt=e.target.closest('.p-opt');
   if (opt){ pickPart(opt); return; }
+}
+function setBracket(i, isOpen, val){
+  if (isOpen) setRowOpen(i, val); else setRowClose(i, val);
+}
+// ================= Готовые разделители =================
+const SEP_PRESETS = SEP_CHOICES.concat([[' (','пробел + «(»'],['-(','дефис + «(»'],[')/','«)» + слэш']]);
+function sepMenu(input){ const w=input.closest('.p-sep-pick'); return w?w.querySelector('.p-sep-menu'):null; }
+function openSepMenu(input){
+  const menu=sepMenu(input); if (!menu) return;
+  closePartMenus(menu);
+  menu.innerHTML=SEP_PRESETS.map(([v,l])=>
+    `<button type="button" class="p-opt p-sep-opt" data-v="${esc(v)}">${esc(l)}</button>`).join('');
+  menu.classList.remove('hidden');
+  menu.scrollTop=0;
+}
+function toggleSepMenu(input){
+  const menu=sepMenu(input);
+  if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+  else openSepMenu(input);
 }
 function addRow(){
   editRows.push(blankRow());
@@ -2055,7 +2128,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v29</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v30</footer>
 </body>
 </html>
 
