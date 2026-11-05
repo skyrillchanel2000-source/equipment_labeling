@@ -70,11 +70,16 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.pos-row{display:grid;grid-template-columns:34px 210px 1fr 130px;gap:8px;margin-bottom:6px;align-items:center}
+.pos-row{display:grid;grid-template-columns:34px 200px 1fr 110px 34px;gap:8px;margin-bottom:6px;align-items:center}
 .pos-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .pos-row select{padding:6px 8px}
 .pos-desc{font-size:13px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pos-meta{font-size:12px;color:var(--mut)}
+.pos-add{min-width:32px;height:32px}
+.pos-add-form{display:grid;grid-template-columns:150px 150px 120px 90px;gap:8px;align-items:end;background:#f8fafc;border:1px dashed var(--line);border-radius:10px;padding:10px;margin:0 0 10px 34px}
+.pos-add-form label{margin:0;font-size:12px}
+.pos-add-desc{grid-column:1/-1;font-size:12px;color:var(--mut)}
+.pos-add-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
 .tpl-warn{font-size:13px;color:#b3261e}
@@ -195,12 +200,14 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <legend>Маркировка по листу-шаблону</legend>
         <div class="parts-toolbar">
           <span class="hint" id="tplStatus">—</span>
+          <a class="linkbtn hidden" id="tplSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
           <button class="linkbtn hidden" id="btnTplManual" type="button">ввести вручную</button>
           <button class="linkbtn hidden" id="btnTplBack" type="button">вернуться к шаблону</button>
           <button class="linkbtn hidden" id="btnNewModel" type="button">создать лист шаблона</button>
         </div>
         <div id="tplRows"></div>
         <div id="manualBox" class="hidden">
+          <div class="hint" id="manualHint"></div>
           <label>Полная маркировка<input id="eMarking" placeholder="например: VC-100"></label>
         </div>
         <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
@@ -389,9 +396,14 @@ const wireColor = name => { if(!name) return '#555'; const n = name.toLowerCase(
 const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
+const SEP_CHOICES = [['','(нет)'],['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['.','точка «.»'],
+  ['_','подчёркивание'],['(','скобка «(»'],[')','скобка «)»']];
+const sepChoices = sel => SEP_CHOICES.map(([v,l]) =>
+  `<option value="${esc(v)}"${v===(sel||'')?' selected':''}>${esc(l)}</option>`).join('');
+
 // ================= Состояние =================
 const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1';
-let cards=[], deletedCards=[], models={};
+let cards=[], deletedCards=[], models={}, modelGids={}, modelsUrl='';
 let pendingOps=[];
 try{ pendingOps=JSON.parse(localStorage.getItem(LS_OPS)||'[]'); }catch(e){ pendingOps=[]; }
 if (!Array.isArray(pendingOps)) pendingOps=[];
@@ -516,7 +528,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v17 · шаблоны моделей · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v18 · шаблоны моделей · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -614,6 +626,8 @@ async function loadCards(){
           models=r.models;
           try{ localStorage.setItem(LS_MODELS, JSON.stringify(models)); }catch(e){}
         }
+        if (r.gids && typeof r.gids==='object') modelGids=r.gids;
+        if (r.url) modelsUrl=r.url;
       } else {
         raw = await fetchJSON(API_URL+sep+'action=list'+bust);
         if(!Array.isArray(raw)) throw new Error('неверный ответ таблицы');
@@ -909,7 +923,7 @@ function openView(id){
 // ================= Создание / редактирование =================
 // Маркировка собирается из листа-шаблона модели: одна строка-позиция —
 // один выпадающий список, варианты берутся с листа.
-const tplState={key:'', groups:[], chosen:[], manual:false};
+const tplState={key:'', groups:[], chosen:[], manual:false, addFor:-1};
 
 function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
@@ -928,6 +942,7 @@ function resetTemplate(marking){
   tplState.groups=rows&&rows.length?groupModelRows(rows):[];
   tplState.chosen=[];
   tplState.manual=false;
+  tplState.addFor=-1;
   const m=String(marking||'').trim();
   $('#eMarking').value=m;
   if (tplState.groups.length){
@@ -945,6 +960,11 @@ function onTemplateKeyChange(){
   if (currentModelKey()===tplState.key) return;
   resetTemplate('');
 }
+function templateSheetHref(key){
+  const gid=modelGids[key];
+  if (!modelsUrl || gid===undefined || gid===null) return '';
+  return modelsUrl+'/edit#gid='+gid;
+}
 function renderTemplate(){
   const st=$('#tplStatus');
   const hasTpl=tplState.groups.length>0;
@@ -957,13 +977,40 @@ function renderTemplate(){
     st.className='hint';
     st.textContent='Укажите производителя и модель — подставится лист-шаблон.';
   }
+  const link=$('#tplSheetLink');
+  if (link){
+    const href=hasTpl?templateSheetHref(tplState.key):'';
+    link.classList.toggle('hidden', !href);
+    if (href) link.href=href;
+  }
   $('#btnTplManual').classList.toggle('hidden', !hasTpl || tplState.manual);
   $('#btnTplBack').classList.toggle('hidden', !hasTpl || !tplState.manual);
   $('#btnNewModel').classList.toggle('hidden', !tplState.key || hasTpl);
   $('#tplRows').classList.toggle('hidden', tplState.manual || !hasTpl);
   $('#manualBox').classList.toggle('hidden', !tplState.manual && hasTpl);
+  const mh=$('#manualHint');
+  if (mh){
+    mh.textContent=(tplState.manual && hasTpl)
+      ? 'Маркировка не совпала с шаблоном. Добавьте недостающее значение кнопкой «+» у нужной позиции — или сохраните текст как есть.'
+      : '';
+  }
   renderTemplateRows();
   refreshPreview();
+}
+function addFormHTML(gi,g){
+  const first=g.variants[0]||{sep:'',unit:'',desc:''};
+  const desc=(g.desc||first.desc||'');
+  return `<div class="pos-add-form" data-pi="${gi}">
+    <label>Значение<input class="pf-part" placeholder="например 160"></label>
+    <label>Разделитель<select class="pf-sep">${sepChoices(first.sep)}</select></label>
+    <label>Характеристика<input class="pf-char" placeholder="160"></label>
+    <label>Ед. изм.<input class="pf-unit" value="${esc(first.unit||'')}"></label>
+    <div class="pos-add-desc">Позиция ${gi+1}: ${esc(desc)}. Строка добавится в лист «${esc(tplState.key)}».</div>
+    <div class="pos-add-actions">
+      <button class="btn primary pf-save" data-pi="${gi}">Добавить в шаблон</button>
+      <button class="linkbtn pf-cancel" data-pi="${gi}">отмена</button>
+    </div>
+  </div>`;
 }
 function renderTemplateRows(){
   if (tplState.manual || !tplState.groups.length){ $('#tplRows').innerHTML=''; return; }
@@ -972,12 +1019,14 @@ function renderTemplateRows(){
     const opts=g.variants.map((v,vi)=>
       `<option value="${vi}"${v===cur?' selected':''}>${esc(v.part)}</option>`).join('');
     const desc=(g.desc||(g.variants[0]&&g.variants[0].desc)||'');
-    return `<div class="pos-row">
+    const row=`<div class="pos-row">
       <span class="idx">${gi+1}</span>
       <select class="pos-sel" data-pi="${gi}"><option value="">— не выбрано —</option>${opts}</select>
       <span class="pos-desc" title="${esc(desc)}">${esc(desc)}</span>
       <span class="pos-meta">${cur?esc(charUnit(cur)):''}</span>
+      <button class="icon-btn pos-add" data-pi="${gi}" data-tip="Добавить значение в лист-шаблон">${icon('plus')}</button>
     </div>`;
+    return row+(tplState.addFor===gi?addFormHTML(gi,g):'');
   }).join('');
 }
 function refreshPreview(){
@@ -1005,6 +1054,65 @@ function templateChange(e){
   if (meta) meta.textContent=tplState.chosen[gi]?charUnit(tplState.chosen[gi]):'';
   refreshPreview();
 }
+function templateRowsClick(e){
+  const add=e.target.closest('.pos-add');
+  if (add){
+    const gi=+add.dataset.pi;
+    tplState.addFor=(tplState.addFor===gi?-1:gi);
+    renderTemplateRows();
+    return;
+  }
+  const cancel=e.target.closest('.pf-cancel');
+  if (cancel){ tplState.addFor=-1; renderTemplateRows(); return; }
+  const save=e.target.closest('.pf-save');
+  if (save){ addVariant(+save.dataset.pi, save.closest('.pos-add-form')); }
+}
+function addVariant(gi, form){
+  const g=tplState.groups[gi];
+  if (!g || !form) return;
+  const part=form.querySelector('.pf-part').value.trim();
+  if (!part){ alert('Укажите значение части'); return; }
+  const sep=form.querySelector('.pf-sep').value;
+  const char=form.querySelector('.pf-char').value.trim();
+  const unit=form.querySelector('.pf-unit').value.trim();
+  const desc=g.desc||(g.variants[0]&&g.variants[0].desc)||'';
+  const keep=tplState.manual?$('#eMarking').value.trim():assembleMarking(tplState.chosen);
+  const oldGroups=tplState.groups;
+  const oldChosen=tplState.chosen.slice();
+  busy(true);
+  postToSheet({action:'addVariant', model:tplState.key, pos:g.pos, part:part,
+               sep:sep, desc:desc, char:char, unit:unit})
+    .then(()=>{
+      setTimeout(()=>{
+        loadCards().then(()=>{
+          busy(false);
+          afterAddVariant(g.pos, part, sep, keep, oldGroups, oldChosen);
+        });
+      }, 1600);
+    })
+    .catch(()=>{ busy(false); alert('Не удалось отправить значение в таблицу.'); });
+}
+function afterAddVariant(pos, part, sep, keep, oldGroups, oldChosen){
+  resetTemplate(keep);
+  if (!tplState.groups.length) return;
+  if (!parseByGroups(keep, tplState.groups)){
+    tplState.chosen=tplState.groups.map(g=>{
+      const oi=oldGroups.findIndex(x=>x.pos===g.pos);
+      const prev=oi>=0?oldChosen[oi]:null;
+      if (!prev) return null;
+      return g.variants.find(v=>v.part===prev.part && (v.sep||'')===(prev.sep||''))||null;
+    });
+    const gi=tplState.groups.findIndex(x=>x.pos===pos);
+    if (gi>=0){
+      const v=tplState.groups[gi].variants.find(x=>x.part===part && (x.sep||'')===(sep||''));
+      if (v) tplState.chosen[gi]=v;
+    }
+    tplState.manual=false;
+  }
+  tplState.addFor=-1;
+  $('#eMarking').value=keep;
+  renderTemplate();
+}
 function setManual(on){
   if (on){
     if (!tplState.manual) $('#eMarking').value=assembleMarking(tplState.chosen)||$('#eMarking').value;
@@ -1013,6 +1121,7 @@ function setManual(on){
     tplState.chosen=parseByGroups($('#eMarking').value.trim(), tplState.groups)||[];
     tplState.manual=false;
   }
+  tplState.addFor=-1;
   renderTemplate();
 }
 function createModelSheet(){
@@ -1454,6 +1563,7 @@ function init(){
   on('#eModel','input',onTemplateKeyChange);
 
   on('#tplRows','change',templateChange);
+  on('#tplRows','click',templateRowsClick);
   on('#btnTplManual','click',()=>setManual(true));
   on('#btnTplBack','click',()=>setManual(false));
   on('#btnNewModel','click',createModelSheet);
@@ -1489,6 +1599,6 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v17</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v18</footer>
 </body>
 </html>
