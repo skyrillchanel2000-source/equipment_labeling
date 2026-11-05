@@ -451,7 +451,8 @@ const SCHEME_NAMES = ['','только клеммы','клеммы + кабел�
 function fixCard(c){
   const x = Object.assign({}, c, { id: String(c.id) });
   if (x.scheme) x.scheme = migrateScheme(x.scheme);
-  if (x.marking1c==null) x.marking1c = '';
+  // поля marking1c здесь НЕ дописываем: по наличию ключа видно, знает ли
+  // развёрнутый скрипт про колонку, и сравнивать ли её при подтверждении
   return x;
 }
 
@@ -556,7 +557,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v26 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v27 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -622,7 +623,7 @@ function applyPending(serverMain, serverTrash){
     let done=false;
     if (o.op==='save'){
       const srv=srvMain;
-      if (srv && sameCard(srv,o.card)) done=true;
+      if (srv && sameCard(o.card, srv)) done=true;
       else if (o.card) main.set(id, o.card);
     } else if (o.op==='delete'){
       if (!main.has(id) && trash.has(id)){ done=true; }
@@ -2044,7 +2045,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v26</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v27</footer>
 </body>
 </html>
 
