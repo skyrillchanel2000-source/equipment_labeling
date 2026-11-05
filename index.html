@@ -514,7 +514,11 @@ function parseByGroups(mark, groups){
       const sep=v.sep||'';
       if (gi===n-1){
         if (base===s.length) return [v];
-        if (sep && s.indexOf(sep, base)===base && base+sep.length===s.length) return [v];
+        const tail=s.slice(base);
+        if (sep && tail===sep) return [v];
+        // у последней части разделитель в маркировку не попадает, поэтому в листе
+        // может остаться «)-», а в маркировке только закрывающая скобка «)»
+        if (tail && tail===closeBrackets(sep)) return [v];
         continue;
       }
       let from;
@@ -564,7 +568,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v30 · скобки в частях · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v31 · скобки и последняя часть · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1017,11 +1021,16 @@ function openView(id){
   const inTrash = !cards.find(x=>String(x.id)===String(id));
   const jc=schemeJumperCount(c.scheme);
   const cparts=cardParts(c);
+  const key=modelKeyOf(c), groups=templateGroups(c);
+  // «лист не найден» и «лист есть, но маркировка не совпала» — разные причины, и лечатся по-разному
+  const noPartsHint = !key ? 'Укажите производителя и модель — по ним ищется лист-шаблон.'
+    : !groups.length ? `Лист-шаблон «${esc(key)}» не найден или пуст — части не с чем сверять.`
+    : `Лист «${esc(key)}» найден (позиций ${groups.length}), но маркировка с ним не совпала: проверьте значения частей и разделители.`;
   const partsHTML = cparts
     ? `<table class="parts-table"><thead><tr><th>№</th><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
         <tbody>${cparts.map((p,i)=>`<tr data-pidx="${i}"><td>${i+1}</td><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
-        <div class="hint">Описания частей — с листа-шаблона «${esc(modelKeyOf(c))}»</div>`
-    : `<div class="hint">Маркировка не разобрана по шаблону${modelKeyOf(c)?`: лист «${esc(modelKeyOf(c))}» не найден или в нём нет нужных частей`:''}. Описания частей появятся, когда шаблон будет заполнен.</div>`;
+        <div class="hint">Описания частей — с листа-шаблона «${esc(key)}»</div>`
+    : `<div class="hint">Маркировка не разобрана по шаблону. ${noPartsHint}</div>`;
   const mk1c=normText(c.marking1c), mkOwn=normText(c.marking);
   const mkCls = !mk1c ? 'none' : (mk1c===mkOwn ? 'ok' : 'bad');
   const mkTip = !mk1c ? 'Маркировка 1С не заполнена'
@@ -1157,6 +1166,27 @@ function setRowClose(i, val){
   const r=editRows[i]; if (!r) return;
   r.sep=val+String(r.sep==null?'':r.sep).replace(/^\)+/,'');
 }
+// Последняя часть маркировки разделителя не имеет — он в маркировку не попадает.
+// Поэтому у последней строки остаются только закрывающие скобки, а строка, которая
+// перестала быть последней (добавили часть, перетащили), получает дефис.
+function tailSep(sep){ return closeBrackets(sep); }
+function bodySep(sep){
+  const s=String(sep==null?'':sep), cl=closeBrackets(s), rest=s.slice(cl.length);
+  return cl + (rest || '-');
+}
+// Строка стоит на последней позиции листа-шаблона (или шаблона нет вовсе) —
+// только тогда её разделитель заведомо ни на что не влияет.
+function isModelTailRow(r){
+  const maxPos=tplGroups.reduce((m,g)=>Math.max(m, Number(g.pos)||0), 0);
+  if (!maxPos) return true;
+  return r && r.pos!=null && Number(r.pos)===maxPos;
+}
+function normalizeTail(prevLast){
+  const seq=rowsWithPart();
+  const last=seq[seq.length-1];
+  if (prevLast && prevLast!==last) prevLast.sep=bodySep(prevLast.sep);
+  if (last && isModelTailRow(last)) last.sep=tailSep(last.sep);
+}
 // Позиция строки в листе-шаблоне едет вместе со строкой: после перемещения
 // правка всё равно должна попасть в свою позицию листа.
 function groupForRow(r){
@@ -1183,7 +1213,14 @@ function partialParse(mark, groups){
       let p=pos+v.part.length;
       const sep=v.sep||'';
       if (sep){
-        if (s.indexOf(sep,p)!==p) continue;
+        if (s.indexOf(sep,p)!==p){
+          // последняя часть: в маркировке от разделителя остаются только скобки
+          if (gi===groups.length-1 && s.slice(p)===closeBrackets(sep)){
+            out[gi]=v; pos=s.length; hits++;
+            break;
+          }
+          continue;
+        }
         p+=sep.length;
       }
       out[gi]=v; pos=p; hits++;
@@ -1307,6 +1344,7 @@ function rowInput(e){
       const v=g?g.variants.find(x=>x.part===t.value.trim()):null;
       if (v){
         r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
+        normalizeTail();
         renderRows();
         return;
       }
@@ -1351,6 +1389,7 @@ function pickPart(btn){
   const v=partVariantsFor(r).find(x=>x.part===btn.dataset.part);
   if (!v) return;
   r.part=v.part; r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
+  normalizeTail();
   renderRows();
 }
 function menuKey(e){
@@ -1476,7 +1515,9 @@ function partsPointerEnd(){
     setTimeout(()=>clone.remove(), 220);
   }
   const wrap=$('#tplRows');
+  const prevLast=rowsWithPart().slice(-1)[0];
   editRows=[...wrap.querySelectorAll('.part-row')].map(el=>el._row).filter(Boolean);
+  normalizeTail(prevLast);
   [...wrap.querySelectorAll('.part-row')].forEach((el,i)=>{ el.dataset.ri=i; el._row=editRows[i]; });
   relabelRows();
   refreshPreview();
@@ -1508,6 +1549,7 @@ function rowClick(e){
   if (e.target.closest('.p-del')){
     editRows.splice(i,1);
     if (!editRows.length) editRows.push(blankRow());
+    normalizeTail();
     renderRows();
     return;
   }
@@ -1539,7 +1581,12 @@ function toggleSepMenu(input){
   else openSepMenu(input);
 }
 function addRow(){
-  editRows.push(blankRow());
+  // новая часть всегда встаёт в конец: у неё разделителя нет,
+  // а прежняя последняя строка получает дефис
+  const prev=rowsWithPart().slice(-1)[0];
+  const r=blankRow(); r.sep='';
+  if (prev) prev.sep=bodySep(prev.sep);
+  editRows.push(r);
   renderRows();
 }
 function openEditor(marking){
@@ -1549,6 +1596,7 @@ function openEditor(marking){
   const m=String(marking||'').trim();
   const parsedOk=!(m && tplGroups.length && !parseByGroups(m, tplGroups));
   editRows=rowsFromTemplate(tplKey, m);
+  normalizeTail();
   tplWarn=parsedOk?'':'Маркировка не совпала с шаблоном — проверьте значения частей.';
   renderTemplate();
   renderRows();
@@ -1559,28 +1607,40 @@ function onTemplateKeyChange(){
   if (key===tplKey) return;
   tplKey=key;
   editRows=rowsFromTemplate(key,'');
+  normalizeTail();
   editOrig=''; editOrigMarking=''; tplParsedOk=true;
   renderTemplate();
   renderRows();
 }
+// '' и '-' — это «разделителя нет» и «дефис по умолчанию»: при сверке с листом
+// считаем их одним значением, иначе правка разделителя плодит дубли в шаблоне.
+function sepAlias(s){ const v=String(s==null?'':s); return v==='-'?'':v; }
 // Что изменить на листе-шаблоне после сохранения карточки.
 function templateJobs(rows, key){
   if (!key) return [];
   const known=modelRowsFor(key)||[];
   const byPos={};
   known.forEach(v=>{ (byPos[v.pos]=byPos[v.pos]||[]).push(v); });
+  const maxPos=known.reduce((m,v)=>Math.max(m, Number(v.pos)||0), 0);
+  const seq=rows.filter(r=>(r.part||'').trim());
   const jobs=[];
-  rows.forEach((r,i)=>{
+  seq.forEach((r,i)=>{
     const part=(r.part||'').trim();
     if (!part) return;
     const pos=r.pos!=null?r.pos:(i+1);
-    const hit=(byPos[pos]||[]).find(v=>v.part===part && (v.sep||'')===(r.sep||''));
+    // у последней части маркировки разделитель в неё не попадает — важны только скобки
+    const isTail = i===seq.length-1 && pos===maxPos;
+    const sep = isTail ? closeBrackets(r.sep) : (r.sep||'');
+    const list=byPos[pos]||[];
+    const hit=list.find(v=>v.part===part &&
+      (isTail ? closeBrackets(v.sep)===sep : sepAlias(v.sep)===sepAlias(sep)));
     if (!hit){
-      jobs.push({action:'addVariant', model:key, pos:pos, part:part, sep:r.sep||'',
+      jobs.push({action:'addVariant', model:key, pos:pos, part:part, sep:sep,
                  desc:r.desc||'', char:r.char||'', unit:r.unit||''});
-    } else if ((hit.desc||'')!==(r.desc||'') || (hit.char||'')!==(r.char||'') || (hit.unit||'')!==(r.unit||'')){
+    } else if ((hit.desc||'')!==(r.desc||'') || (hit.char||'')!==(r.char||'') ||
+               (hit.unit||'')!==(r.unit||'') || (hit.sep||'')!==sep){
       jobs.push({action:'updateVariant', model:key, pos:pos, part:part, oldSep:hit.sep,
-                 sep:r.sep||'', desc:r.desc||'', char:r.char||'', unit:r.unit||''});
+                 sep:sep, desc:r.desc||'', char:r.char||'', unit:r.unit||''});
     }
   });
   return jobs;
@@ -2128,7 +2188,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v30</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v31</footer>
 </body>
 </html>
 
