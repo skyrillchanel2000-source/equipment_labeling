@@ -79,6 +79,7 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .pos-add-form{display:grid;grid-template-columns:150px 150px 120px 90px;gap:8px;align-items:end;background:#f8fafc;border:1px dashed var(--line);border-radius:10px;padding:10px;margin:0 0 10px 34px}
 .pos-add-form label{margin:0;font-size:12px}
 .pos-add-desc{grid-column:1/-1;font-size:12px;color:var(--mut)}
+.pf-desc-wrap{grid-column:1/-1}
 .pos-add-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
@@ -1005,7 +1006,8 @@ function addFormHTML(gi,g){
     <label>Разделитель<select class="pf-sep">${sepChoices(first.sep)}</select></label>
     <label>Характеристика<input class="pf-char" placeholder="160"></label>
     <label>Ед. изм.<input class="pf-unit" value="${esc(first.unit||'')}"></label>
-    <div class="pos-add-desc">Позиция ${gi+1}: ${esc(desc)}. Строка добавится в лист «${esc(tplState.key)}».</div>
+    <label class="pf-desc-wrap">Описание (показывается в карточке)<input class="pf-desc" value="${esc(desc)}" placeholder="например: Длина погружной части"></label>
+    <div class="pos-add-desc">Позиция ${gi+1}. Строка добавится в лист «${esc(tplState.key)}».</div>
     <div class="pos-add-actions">
       <button class="btn primary pf-save" data-pi="${gi}">Добавить в шаблон</button>
       <button class="linkbtn pf-cancel" data-pi="${gi}">отмена</button>
@@ -1075,7 +1077,8 @@ function addVariant(gi, form){
   const sep=form.querySelector('.pf-sep').value;
   const char=form.querySelector('.pf-char').value.trim();
   const unit=form.querySelector('.pf-unit').value.trim();
-  const desc=g.desc||(g.variants[0]&&g.variants[0].desc)||'';
+  const descField=form.querySelector('.pf-desc');
+  const desc=(descField?descField.value.trim():'')||g.desc||(g.variants[0]&&g.variants[0].desc)||'';
   const keep=tplState.manual?$('#eMarking').value.trim():assembleMarking(tplState.chosen);
   const oldGroups=tplState.groups;
   const oldChosen=tplState.chosen.slice();
