@@ -70,11 +70,10 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.pos-row{display:grid;grid-template-columns:34px 200px 1fr 110px 34px;gap:8px;margin-bottom:6px;align-items:center}
+.pos-row{display:grid;grid-template-columns:30px 118px 88px 1fr 108px 88px 32px;gap:6px;margin-bottom:6px;align-items:center}
 .pos-row .idx{color:var(--mut);font-size:12px;text-align:center}
-.pos-row select{padding:6px 8px}
-.pos-desc{font-size:13px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pos-meta{font-size:12px;color:var(--mut)}
+.pos-row select,.pos-row input{padding:6px 8px;font-size:13px}
+.pos-row .pos-vdesc{min-width:0}
 .pos-add{min-width:32px;height:32px}
 .pos-add-form{display:grid;grid-template-columns:150px 150px 120px 90px;gap:8px;align-items:end;background:#f8fafc;border:1px dashed var(--line);border-radius:10px;padding:10px;margin:0 0 10px 34px}
 .pos-add-form label{margin:0;font-size:12px}
@@ -401,6 +400,14 @@ const SEP_CHOICES = [['','(нет)'],['-','дефис «-»'],[' ','пробел
   ['_','подчёркивание'],['(','скобка «(»'],[')','скобка «)»']];
 const sepChoices = sel => SEP_CHOICES.map(([v,l]) =>
   `<option value="${esc(v)}"${v===(sel||'')?' selected':''}>${esc(l)}</option>`).join('');
+
+const UNITS = ['','Па','кПа','МПа','бар','мм вод. ст.','%','°C','°','мм','см','дм','м','м²','м³',
+  'л/с','м³/ч','В','мВ','А','мА','Вт','кВт','Гц','об/мин','кг','с','ч'];
+const unitChoices = sel => {
+  const list = UNITS.slice();
+  if (sel && list.indexOf(sel) < 0) list.push(sel);
+  return list.map(u => `<option value="${esc(u)}"${u===(sel||'')?' selected':''}>${u?esc(u):'—'}</option>`).join('');
+};
 
 // ================= Состояние =================
 const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1';
@@ -1017,15 +1024,18 @@ function addFormHTML(gi,g){
 function renderTemplateRows(){
   if (tplState.manual || !tplState.groups.length){ $('#tplRows').innerHTML=''; return; }
   $('#tplRows').innerHTML=tplState.groups.map((g,gi)=>{
-    const cur=tplState.chosen[gi];
+    const sel=tplState.chosen[gi];
+    const cur=sel||g.variants[0]||{part:'',sep:'',desc:'',char:'',unit:''};
     const opts=g.variants.map((v,vi)=>
-      `<option value="${vi}"${v===cur?' selected':''}>${esc(v.part)}</option>`).join('');
-    const desc=(g.desc||(g.variants[0]&&g.variants[0].desc)||'');
-    const row=`<div class="pos-row">
+      `<option value="${vi}"${v===sel?' selected':''}>${esc(v.part)}</option>`).join('');
+    const desc=cur.desc||g.desc||'';
+    const row=`<div class="pos-row" data-pi="${gi}">
       <span class="idx">${gi+1}</span>
       <select class="pos-sel" data-pi="${gi}"><option value="">— не выбрано —</option>${opts}</select>
-      <span class="pos-desc" title="${esc(desc)}">${esc(desc)}</span>
-      <span class="pos-meta">${cur?esc(charUnit(cur)):''}</span>
+      <select class="pos-vsep" data-pi="${gi}" title="Разделитель после части">${sepChoices(cur.sep)}</select>
+      <input class="pos-vdesc" data-pi="${gi}" value="${esc(desc)}" placeholder="описание части">
+      <input class="pos-vchar" data-pi="${gi}" value="${esc(cur.char||'')}" placeholder="характеристика">
+      <select class="pos-vunit" data-pi="${gi}" title="Единицы измерения">${unitChoices(cur.unit)}</select>
       <button class="icon-btn pos-add" data-pi="${gi}" data-tip="Добавить значение в лист-шаблон">${icon('plus')}</button>
     </div>`;
     return row+(tplState.addFor===gi?addFormHTML(gi,g):'');
@@ -1048,13 +1058,44 @@ function refreshPreview(){
   });
   box.innerHTML=html||'<i>пусто</i>';
 }
+// Правка строки шаблона прямо в карточке: значение пишется в лист модели.
+function saveVariant(v, oldSep){
+  if (!tplState.key || !v) return;
+  postToSheet({action:'updateVariant', model:tplState.key, pos:v.pos, part:v.part,
+               oldSep:oldSep===undefined?v.sep:oldSep, sep:v.sep,
+               desc:v.desc, char:v.char, unit:v.unit})
+    .catch(()=>setBanner('Изменение шаблона не отправлено в Google Таблицу — проверьте связь.','warn'));
+}
 function templateChange(e){
-  const sel=e.target.closest('.pos-sel'); if(!sel) return;
-  const gi=+sel.dataset.pi;
-  tplState.chosen[gi]= sel.value==='' ? null : tplState.groups[gi].variants[+sel.value];
-  const meta=sel.closest('.pos-row').querySelector('.pos-meta');
-  if (meta) meta.textContent=tplState.chosen[gi]?charUnit(tplState.chosen[gi]):'';
-  refreshPreview();
+  const t=e.target;
+  const pi=t.dataset?t.dataset.pi:undefined;
+  if (pi===undefined || pi==='') return;
+  const gi=+pi;
+  const g=tplState.groups[gi];
+  if (!g) return;
+  if (t.classList.contains('pos-sel')){
+    tplState.chosen[gi]= t.value===''?null:g.variants[+t.value];
+    renderTemplateRows();
+    refreshPreview();
+    return;
+  }
+  const v=tplState.chosen[gi]||g.variants[0];
+  if (!v) return;
+  const oldSep=v.sep;
+  if (t.classList.contains('pos-vsep')){
+    v.sep=t.value;
+    saveVariant(v, oldSep);
+    refreshPreview();
+  } else if (t.classList.contains('pos-vdesc')){
+    v.desc=t.value.trim();
+    saveVariant(v, oldSep);
+  } else if (t.classList.contains('pos-vchar')){
+    v.char=t.value.trim();
+    saveVariant(v, oldSep);
+  } else if (t.classList.contains('pos-vunit')){
+    v.unit=t.value;
+    saveVariant(v, oldSep);
+  }
 }
 function templateRowsClick(e){
   const add=e.target.closest('.pos-add');
