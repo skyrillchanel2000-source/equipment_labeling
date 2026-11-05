@@ -70,10 +70,27 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
 .parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.part-row{display:grid;grid-template-columns:30px 132px 88px 1fr 108px 88px 32px;gap:6px;margin-bottom:6px;align-items:center}
+.part-row{display:grid;grid-template-columns:24px minmax(140px,1fr) 76px minmax(120px,1fr) 96px 74px 54px 32px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .part-row input,.part-row select{padding:6px 8px;font-size:13px}
 .part-row .p-part{font-weight:600}
+.p-pick{position:relative}
+.p-pick .p-part{width:100%;padding-right:22px}
+.p-drop{position:absolute;right:1px;top:1px;bottom:1px;width:20px;border:0;background:transparent;color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.p-drop:hover{color:var(--acc)}
+.p-drop svg{width:13px;height:13px}
+.p-menu{position:absolute;left:0;right:-40px;top:calc(100% + 2px);z-index:40;max-height:240px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.16)}
+.p-menu.hidden{display:none}
+.p-opt{display:block;width:100%;text-align:left;padding:6px 9px;border:0;border-bottom:1px solid #eef2f7;background:none;font:inherit;font-size:13px;cursor:pointer}
+.p-opt:last-child{border-bottom:0}
+.p-opt:hover,.p-opt:focus{background:#eef4ff;outline:none}
+.p-opt b{font-weight:600}
+.p-opt span{display:block;color:var(--mut);font-size:12px}
+.p-empty{padding:7px 9px;color:var(--mut);font-size:12px}
+.p-move{display:inline-flex;gap:2px}
+.p-move .icon-btn{min-width:26px;width:26px;height:26px;padding:0;border-radius:6px}
+.p-move .icon-btn svg{width:13px;height:13px}
+.p-move .icon-btn[disabled]{opacity:.35;cursor:default;border-color:var(--line);color:var(--ink);background:#fff}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
 .tpl-warn{font-size:13px;color:#b3261e}
@@ -519,7 +536,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v23 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v24 · части маркировки · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1030,7 +1047,17 @@ function modelRowsFor(key){
   const hit=Object.keys(models).find(k=>k.toLowerCase()===low);
   return hit?models[hit]:null;
 }
-function blankRow(){ return {part:'', sep:'-', desc:'', char:'', unit:''}; }
+function blankRow(){ return {part:'', sep:'-', desc:'', char:'', unit:'', pos:null}; }
+// Позиция строки в листе-шаблоне едет вместе со строкой: после перемещения
+// правка всё равно должна попасть в свою позицию листа.
+function groupForRow(r){
+  if (!tplGroups.length) return null;
+  if (r && r.pos!=null){
+    const g=tplGroups.find(x=>x.pos===r.pos);
+    if (g) return g;
+  }
+  return null;
+}
 
 // Частичное разложение: подставляет всё, что совпало с шаблоном, пропуская
 // позиции, значения которых в шаблоне ещё нет (например, новая длина 160).
@@ -1067,11 +1094,11 @@ function rowsFromTemplate(key, marking){
     const take=parsed||loose;
     return tplGroups.map((g,i)=>{
       const v=(take&&take[i])||(parsed?null:g.variants[0])||null;
-      return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||''}
-              :blankRow();
+      return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||'', pos:g.pos}
+              :Object.assign(blankRow(), {pos:g.pos});
     });
   }
-  if (marking) return [{part:marking, sep:'', desc:'', char:'', unit:''}];
+  if (marking) return [{part:marking, sep:'', desc:'', char:'', unit:'', pos:null}];
   return [blankRow()];
 }
 function renderTemplate(){
@@ -1096,16 +1123,23 @@ function renderTemplate(){
 }
 function renderRows(){
   $('#tplRows').innerHTML=editRows.map((r,i)=>{
-    const g=tplGroups[i];
-    const opts=g?g.variants.map(v=>`<option value="${esc(v.part)}">`).join(''):'';
+    const g=groupForRow(r);
+    const last=editRows.length-1;
     return `<div class="part-row" data-ri="${i}">
       <span class="idx">${i+1}</span>
-      <input class="p-part" list="dlp${i}" value="${esc(r.part||'')}" placeholder="часть">
-      <datalist id="dlp${i}">${opts}</datalist>
+      <div class="p-pick">
+        <input class="p-part" autocomplete="off" value="${esc(r.part||'')}" placeholder="часть">
+        <button type="button" class="p-drop" tabindex="-1" data-tip="Значения из листа-шаблона">${icon('down')}</button>
+        <div class="p-menu hidden"></div>
+      </div>
       <select class="p-sep" title="Разделитель после части">${sepChoices(r.sep)}</select>
       <input class="p-desc" value="${esc(r.desc||'')}" placeholder="описание части">
       <input class="p-char" value="${esc(r.char||'')}" placeholder="характеристика">
       <select class="p-unit" title="Единицы измерения">${unitChoices(r.unit)}</select>
+      <span class="p-move">
+        <button type="button" class="icon-btn p-up" data-tip="Переместить выше"${i===0?' disabled':''}>${icon('up')}</button>
+        <button type="button" class="icon-btn p-down" data-tip="Переместить ниже"${i===last?' disabled':''}>${icon('down')}</button>
+      </span>
       <button class="icon-btn danger p-del" data-tip="Удалить часть">${icon('trash')}</button>
     </div>`;
   }).join('');
@@ -1146,8 +1180,14 @@ function rowInput(e){
       const ch=row.querySelector('.p-char');
       if (ch) ch.value=nv;
     }
-    if (e.type==='change' && tplGroups[i]){
-      const v=tplGroups[i].variants.find(x=>x.part===t.value.trim());
+    if (e.type==='input' && partVariantsFor(r).length){
+      openPartMenu(t, false);
+    }
+    if (e.type==='change'){
+      const menu=row.querySelector('.p-menu');
+      if (menu) menu.classList.add('hidden');
+      const g=groupForRow(r);
+      const v=g?g.variants.find(x=>x.part===t.value.trim()):null;
       if (v){
         r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
         renderRows();
@@ -1162,12 +1202,80 @@ function rowInput(e){
   else return;
   refreshPreview();
 }
-function rowClick(e){
-  if (!e.target.closest('.p-del')) return;
-  const row=e.target.closest('.part-row');
-  editRows.splice(+row.dataset.ri,1);
-  if (!editRows.length) editRows.push(blankRow());
+// ================= Перемещение частей маркировки =================
+function moveRow(i, delta){
+  const j=i+delta;
+  if (j<0 || j>=editRows.length) return;
+  const t=editRows[i]; editRows[i]=editRows[j]; editRows[j]=t;
   renderRows();
+  const row=$('#tplRows .part-row[data-ri="'+j+'"]');
+  if (row){ const inp=row.querySelector('.p-part'); if (inp) inp.focus(); }
+  refreshPreview();
+}
+// ================= Выпадающий список частей =================
+function partVariantsFor(r){
+  const g=groupForRow(r);
+  return g?g.variants:[];
+}
+function closePartMenus(except){
+  $$('#tplRows .p-menu').forEach(m=>{ if (m!==except) m.classList.add('hidden'); });
+}
+function openPartMenu(input, showAll){
+  const row=input.closest('.part-row'); if (!row) return;
+  const i=+row.dataset.ri, r=editRows[i], menu=row.querySelector('.p-menu');
+  if (!r || !menu) return;
+  closePartMenus(menu);
+  const q=showAll?'':normText(input.value).toLowerCase();
+  const list=partVariantsFor(r).filter(v=>!q || v.part.toLowerCase().indexOf(q)>=0);
+  menu.innerHTML=list.length
+    ? list.map(v=>`<button type="button" class="p-opt" data-part="${esc(v.part)}"><b>${esc(v.part)}</b>${v.desc?'<span>'+esc(v.desc)+'</span>':''}</button>`).join('')
+    : '<div class="p-empty">'+(partVariantsFor(r).length?'Таких значений нет — впишите своё':'В шаблоне нет значений — впишите своё')+'</div>';
+  menu.classList.remove('hidden');
+  menu.scrollTop=0;
+}
+function togglePartMenu(input){
+  const menu=input.closest('.part-row').querySelector('.p-menu');
+  if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+  else openPartMenu(input, true);
+}
+function pickPart(btn){
+  const row=btn.closest('.part-row'); if (!row) return;
+  const i=+row.dataset.ri, r=editRows[i]; if (!r) return;
+  const v=partVariantsFor(r).find(x=>x.part===btn.dataset.part);
+  if (!v) return;
+  r.part=v.part; r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
+  renderRows();
+}
+function menuKey(e){
+  const menu=e.target.closest('.p-menu'); if (!menu) return;
+  const opts=[...menu.querySelectorAll('.p-opt')];
+  const cur=opts.indexOf(document.activeElement);
+  if (e.key==='ArrowDown'){ e.preventDefault(); (opts[cur+1]||opts[0]||{}).focus&&(opts[cur+1]||opts[0]).focus(); }
+  else if (e.key==='ArrowUp'){ e.preventDefault(); const t=cur>0?opts[cur-1]:opts[opts.length-1]; if (t) t.focus(); }
+  else if (e.key==='Escape'){
+    const row=menu.closest('.part-row');
+    menu.classList.add('hidden');
+    if (row){ const inp=row.querySelector('.p-part'); if (inp) inp.focus(); }
+  }
+}
+function rowClick(e){
+  const row=e.target.closest('.part-row'); if (!row) return;
+  const i=+row.dataset.ri;
+  if (e.target.closest('.p-del')){
+    editRows.splice(i,1);
+    if (!editRows.length) editRows.push(blankRow());
+    renderRows();
+    return;
+  }
+  if (e.target.closest('.p-up')){ moveRow(i,-1); return; }
+  if (e.target.closest('.p-down')){ moveRow(i,1); return; }
+  if (e.target.closest('.p-drop')){
+    const inp=row.querySelector('.p-part');
+    if (inp){ inp.focus(); togglePartMenu(inp); }
+    return;
+  }
+  const opt=e.target.closest('.p-opt');
+  if (opt){ pickPart(opt); return; }
 }
 function addRow(){
   editRows.push(blankRow());
@@ -1204,7 +1312,7 @@ function templateJobs(rows, key){
   rows.forEach((r,i)=>{
     const part=(r.part||'').trim();
     if (!part) return;
-    const pos=i+1;
+    const pos=r.pos!=null?r.pos:(i+1);
     const hit=(byPos[pos]||[]).find(v=>v.part===part && (v.sep||'')===(r.sep||''));
     if (!hit){
       jobs.push({action:'addVariant', model:key, pos:pos, part:part, sep:r.sep||'',
@@ -1663,6 +1771,23 @@ function init(){
   on('#tplRows','input',rowInput);
   on('#tplRows','change',rowInput);
   on('#tplRows','click',rowClick);
+  on('#tplRows','keydown',e=>{
+    if (e.target.classList.contains('p-part')){
+      if (e.key==='ArrowDown'){
+        e.preventDefault();
+        const menu=e.target.closest('.part-row').querySelector('.p-menu');
+        openPartMenu(e.target, true);
+        const first=menu?menu.querySelector('.p-opt'):null;
+        if (first) first.focus();
+      } else if (e.key==='Escape'){
+        const menu=e.target.closest('.part-row').querySelector('.p-menu');
+        if (menu) menu.classList.add('hidden');
+      }
+      return;
+    }
+    menuKey(e);
+  });
+  document.addEventListener('click', e=>{ if (!e.target.closest('.p-pick')) closePartMenus(); });
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
@@ -1694,6 +1819,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v23</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v24</footer>
 </body>
 </html>
+
