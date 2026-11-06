@@ -44,16 +44,16 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .card.deleted{background:#f6f7fa}
 .card.deleted .card-marking{opacity:.75}
 .del-info{font-size:12px;color:var(--danger)}
-.card-cat{font-size:12px;color:var(--mut);padding-right:20px}
+.card-cat{font-size:12px;color:var(--mut)}
 .card-proj{font-size:12px;color:var(--mut)}
 .st-dot{display:inline-block;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(17,24,39,.08);flex:0 0 auto}
 .st-dot.big{width:13px;height:13px}
-.card-status{position:absolute;top:12px;right:12px}
+.card-actions .st-dot{margin-left:auto;align-self:center}
 .st-wrap{display:flex;align-items:center;gap:6px}
 .card-marking{font-size:19px;font-weight:600;line-height:2;word-break:break-word}
 .card-scheme{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
 .card-scheme svg{width:15px;height:15px}
-.card-actions{display:flex;gap:6px;margin-top:auto;padding-top:8px;border-top:1px solid var(--line)}
+.card-actions{display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:8px;border-top:1px solid var(--line)}
 .empty{text-align:center;color:var(--mut);padding:60px 20px}
 .part{padding:2px 7px;border-radius:6px;cursor:help;white-space:nowrap;transition:filter .12s,box-shadow .12s}
 .part:hover,.part.hl{filter:saturate(1.9) brightness(1.05);box-shadow:0 0 0 2px rgba(17,24,39,.4)}
@@ -630,7 +630,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v34 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v35 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -977,7 +977,6 @@ function trashCardHTML(c){
   return `
     <div class="card deleted">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
-      ${statusDot(c.status)?`<div class="card-status">${statusDot(c.status)}</div>`:''}
       <div class="card-marking">${markingHTML(c)}</div>
       ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
       ${c.deletedAt?`<div class="del-info">Удалено: ${esc(c.deletedAt)}</div>`:''}
@@ -986,6 +985,7 @@ function trashCardHTML(c){
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${esc(c.id)}">${icon('eye')}</button>
         <button class="icon-btn" data-tip="Восстановить на лист «Маркировки»" data-act="restore" data-id="${esc(c.id)}">${icon('undo')}</button>
         <button class="icon-btn danger" data-tip="Удалить навсегда (по ключу)" data-act="purge" data-id="${esc(c.id)}">${icon('trash')}</button>
+        ${statusDot(c.status)}
       </div>
     </div>`;
 }
@@ -1015,7 +1015,6 @@ function renderCards(){
     return `
     <div class="card">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
-      ${statusDot(c.status)?`<div class="card-status" data-tip="Статус: ${esc(c.status)}">${statusDot(c.status)}</div>`:''}
       <div class="card-marking">${markingHTML(c)}</div>
       ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
@@ -1024,6 +1023,7 @@ function renderCards(){
         <button class="icon-btn" data-tip="Создать на основе" data-act="clone" data-id="${esc(c.id)}">${icon('copy')}</button>
         <button class="icon-btn" data-tip="Редактировать" data-act="edit" data-id="${esc(c.id)}">${icon('edit')}</button>
         <button class="icon-btn danger" data-tip="Удалить (в корзину)" data-act="del" data-id="${esc(c.id)}">${icon('trash')}</button>
+        ${statusDot(c.status)}
       </div>
     </div>`;}).join('');
 }
@@ -1104,7 +1104,7 @@ function openView(id){
     : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
-    <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b> · <span class="st-wrap">${statusDot(c.status, true)}<b>${esc(c.status||'статус не задан')}</b></span></div>
+    <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b>${c.status?` · ${statusDot(c.status, true)}`:''}</div>
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
     <div class="hint" id="copyHint">${COPY_HINT}</div>
@@ -2267,7 +2267,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v34</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v35</footer>
 </body>
 </html>
 
