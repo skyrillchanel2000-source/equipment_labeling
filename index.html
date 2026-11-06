@@ -39,12 +39,18 @@ a.icon-btn{text-decoration:none}
 input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
 label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;padding:0 22px 40px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;position:relative}
 .card:hover{box-shadow:0 4px 16px rgba(20,40,80,.08)}
 .card.deleted{background:#f6f7fa}
 .card.deleted .card-marking{opacity:.75}
 .del-info{font-size:12px;color:var(--danger)}
-.card-cat{font-size:12px;color:var(--mut)}
+.card-cat{font-size:12px;color:var(--mut);padding-right:20px}
+.card-proj{font-size:12px;color:var(--mut)}
+.st-dot{display:inline-block;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(17,24,39,.08);flex:0 0 auto}
+.st-dot:empty{display:none}
+.st-dot.big{width:13px;height:13px}
+.card-status{position:absolute;top:12px;right:12px}
+.st-wrap{display:flex;align-items:center;gap:6px}
 .card-marking{font-size:19px;font-weight:600;line-height:2;word-break:break-word}
 .card-scheme{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
 .card-scheme svg{width:15px;height:15px}
@@ -231,6 +237,10 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <label>Модель оборудования<div class="field-pick"><input id="eModel" autocomplete="off" placeholder="например: ТСПТ-104"><button type="button" class="f-drop" tabindex="-1" data-tip="Список моделей">▾</button><div class="f-menu hidden"></div></div></label>
         <label>Код 1С<input id="eCode" placeholder="Введите код 1С"></label>
       </div>
+      <div class="grid2">
+        <label>Проект<input id="eProject" list="dlProjects" autocomplete="off" placeholder="несколько проектов — через запятую: АГХК, БГХК"></label>
+        <label>Статус<span class="st-wrap"><span id="eStatusDot" class="st-dot"></span><select id="eStatus"></select></span></label>
+      </div>
       <label>Текущая маркировка из 1С<input id="eMarking1c" autocomplete="off" placeholder="вставьте маркировку так, как она записана в 1С"></label>
       <fieldset>
         <legend>Части маркировки</legend>
@@ -300,6 +310,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <datalist id="dlCategories"></datalist>
 <datalist id="dlManufacturers"></datalist>
 <datalist id="dlModels"></datalist>
+<datalist id="dlProjects"></datalist>
 <datalist id="dlCables"></datalist>
 <datalist id="dlWires"></datalist>
 <datalist id="dlTerms"></datalist>
@@ -453,6 +464,41 @@ try{ filters=Object.assign({q:'',cat:'',man:''}, JSON.parse(localStorage.getItem
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
+// Статус карточки — огонёк в правом верхнем углу. Пустое значение = статус не задан.
+const STATUSES = [
+  {v:'Актуальный',     color:'#1a9e57'},
+  {v:'В разработке',   color:'#e0b400'},
+  {v:'Конструкторский',color:'#e07b1a'},
+  {v:'Не актуальный',  color:'#d0342c'}
+];
+function statusColor(s){
+  const t=normText(s).toLowerCase();
+  const hit=STATUSES.find(x=>x.v.toLowerCase()===t);
+  return hit?hit.color:'';
+}
+function statusDot(s, big){
+  const col=statusColor(s);
+  if (!col) return '';
+  return `<span class="st-dot${big?' big':''}" style="background:${col}" data-tip="Статус: ${esc(normText(s))}"></span>`;
+}
+function statusSelectHTML(sel){
+  const cur=normText(sel);
+  return '<option value="">— не задан —</option>' + STATUSES.map(x=>
+    `<option value="${esc(x.v)}"${x.v===cur?' selected':''}>${esc(x.v)}</option>`).join('');
+}
+// Огонёк рядом с выпадающим списком показывает цвет выбранного статуса.
+function syncStatusDot(){
+  const sel=$('#eStatus'), dot=$('#eStatusDot');
+  if (!sel || !dot) return;
+  const col=statusColor(sel.value);
+  dot.style.background=col;
+  dot.style.visibility=col?'visible':'hidden';
+  dot.setAttribute('data-tip', col?'Статус: '+sel.value:'');
+}
+// Проекты — свободный текст, несколько через запятую; в подсказки попадает каждый по отдельности.
+function projectList(c){
+  return String((c&&c.project)||'').split(',').map(s=>s.trim()).filter(Boolean);
+}
 
 // id всегда строкой (Google может вернуть число — из-за этого «умирали» иконки)
 function fixCard(c){
@@ -585,7 +631,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v32 · необязательные позиции · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v33 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -612,8 +658,8 @@ function normSep(v){
 }
 function normText(v){ return String(v==null?'':v).replace(/[\s\u00a0]+$/,'').replace(/^[\s\u00a0]+/,''); }
 const CARD_FIELDS=[['marking','маркировка'],['marking1c','маркировка 1С'],['category','категория'],
-  ['manufacturer','производитель'],['model','модель'],['comment','комментарий'],
-  ['schemeText','текст схемы'],['sep','разделитель']];
+  ['manufacturer','производитель'],['model','модель'],['project','проект'],['status','статус'],
+  ['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
 // Разделитель карточки — производное от шаблона модели, в таблицу он пишется как «(пробел)»/«(нет)».
 // Его расхождение не должно держать операцию в очереди навсегда, поэтому в подтверждение он не входит.
 const CONFIRM_FIELDS=CARD_FIELDS.filter(([k])=>k!=='sep');
@@ -932,7 +978,9 @@ function trashCardHTML(c){
   return `
     <div class="card deleted">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
+      ${statusDot(c.status)?`<div class="card-status">${statusDot(c.status)}</div>`:''}
       <div class="card-marking">${markingHTML(c)}</div>
+      ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
       ${c.deletedAt?`<div class="del-info">Удалено: ${esc(c.deletedAt)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''}</div>` : ''}
       <div class="card-actions">
@@ -952,7 +1000,8 @@ function renderCards(){
     if (man && c.manufacturer!==man) return false;
     if (q){
       const ps=cardParts(c)||[];
-      const hay=[c.id||'', c.marking||'', c.marking1c||'', c.model, c.category, c.manufacturer, c.comment,
+      const hay=[c.id||'', c.marking||'', c.marking1c||'', c.model, c.category, c.manufacturer,
+        c.project||'', c.status||'', c.comment,
         ...ps.flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
       if (!searchMatch(hay, q)) return false;
     }
@@ -967,7 +1016,9 @@ function renderCards(){
     return `
     <div class="card">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
+      ${statusDot(c.status)?`<div class="card-status" data-tip="Статус: ${esc(c.status)}">${statusDot(c.status)}</div>`:''}
       <div class="card-marking">${markingHTML(c)}</div>
+      ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
       <div class="card-actions">
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${esc(c.id)}">${icon('eye')}</button>
@@ -1054,6 +1105,7 @@ function openView(id){
     : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
+    <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b> · Статус: <span class="st-wrap">${statusDot(c.status)?statusDot(c.status):''}<b>${esc(c.status||'не задан')}</b></span></div>
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
     <div class="hint" id="copyHint">${COPY_HINT}</div>
@@ -1104,6 +1156,7 @@ function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
   $('#dlManufacturers').innerHTML=opts(cards.map(c=>c.manufacturer));
   $('#dlModels').innerHTML=opts(cards.map(c=>c.model));
+  $('#dlProjects').innerHTML=opts(cards.flatMap(projectList));
 }
 function updateEditDatalists(){ fillEditDatalists(); }
 
@@ -1700,6 +1753,9 @@ function openEdit(src, mode){
   draftSchemeText=base.schemeText || (draftScheme ? schemeToText(draftScheme) : '');
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
+  $('#eProject').value=base.project||'';
+  $('#eStatus').innerHTML=statusSelectHTML(base.status||'');
+  syncStatusDot();
   $('#eMarking1c').value=base.marking1c||'';
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
   fillEditDatalists();
@@ -1729,6 +1785,8 @@ function collectCard(){
     marking: marking,
     marking1c: $('#eMarking1c').value.trim(),
     sep: first?(first.sep||'-'):'-',
+    project: $('#eProject').value.trim(),
+    status: $('#eStatus').value,
     comment: $('#eComment').value.trim(),
     scheme: draftScheme, schemeType: draftScheme?draftScheme.type:0,
     schemeText: draftSchemeText, basedOn: editBaseOn
@@ -2070,9 +2128,9 @@ function fillDatalists(){
 // ================= Экспорт CSV =================
 function exportCSV(){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Маркировка','Части маркировки','Схема','Комментарий'].join(';')];
+  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Проект','Статус','Маркировка','Части маркировки','Схема','Комментарий'].join(';')];
   cards.forEach(c=>lines.push([
-    c.id, c.date, c.category, c.manufacturer, c.model, c.marking||'',
+    c.id, c.date, c.category, c.manufacturer, c.model, c.project||'', c.status||'', c.marking||'',
     (cardParts(c)||[]).map(p=>[p.part,p.desc||'',charUnit(p)].join(' :: ')).join(' | '),
     c.schemeText||'', c.comment
   ].map(q).join(';')));
@@ -2110,6 +2168,7 @@ function init(){
   on('#eCategory','input',updateEditDatalists);
   on('#eManufacturer','input',onTemplateKeyChange);
   on('#eModel','input',onTemplateKeyChange);
+  on('#eStatus','change',syncStatusDot);
 
   // выпадающие списки категории, производителя и модели
   ['eCategory','eManufacturer','eModel'].forEach(id=>{
@@ -2209,7 +2268,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v32</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v33</footer>
 </body>
 </html>
 
