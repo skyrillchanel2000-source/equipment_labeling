@@ -500,41 +500,58 @@ function templateGroups(c){
   const rows=modelRowsOf(c);
   return rows&&rows.length?groupModelRows(rows):[];
 }
+// Позиции шаблона не все обязательны: у одной и той же модели часть (например,
+// «Exd») в маркировке может отсутствовать. Поэтому позицию разрешено пропустить,
+// а из найденных вариантов берётся тот, где пропусков меньше. В результате на
+// месте пропущенной позиции остаётся null — её значение и разделитель в
+// маркировке не участвуют.
 function parseByGroups(mark, groups){
   const s=String(mark||'');
   if (!groups || !groups.length || !s) return null;
   const n=groups.length;
-  function rec(gi, pos){
-    if (gi===n) return pos===s.length?[]:null;
+  let best=null, bestCost=Infinity;
+  function done(acc, cost){
+    if (cost>=bestCost) return;
+    const full=acc.slice();
+    while (full.length<n) full.push(null);
+    bestCost=cost; best=full;
+  }
+  function rec(gi, pos, cost, acc){
+    if (cost>=bestCost || gi>=n) return;
     const vs=groups[gi].variants;
     for (let k=0;k<vs.length;k++){
       const v=vs[k];
       if (s.indexOf(v.part, pos)!==pos) continue;
       const base=pos+v.part.length;
       const sep=v.sep||'';
-      if (gi===n-1){
-        if (base===s.length) return [v];
-        const tail=s.slice(base);
-        if (sep && tail===sep) return [v];
+      const tail=s.slice(base);
+      // остаток маркировки совпал с концом: это последняя часть, а все позиции
+      // после неё в маркировке отсутствуют
+      if (base===s.length || (sep && tail===sep) || (tail && tail===closeBrackets(sep))){
         // у последней части разделитель в маркировку не попадает, поэтому в листе
         // может остаться «)-», а в маркировке только закрывающая скобка «)»
-        if (tail && tail===closeBrackets(sep)) return [v];
-        continue;
+        done(acc.concat([v]), cost + (n-1-gi));
       }
+      if (gi===n-1) continue;
       let from;
       if (sep){ if (s.indexOf(sep, base)!==base) continue; from=base+sep.length; }
       else from=base;
-      const rest=rec(gi+1, from);
-      if (rest) return [v].concat(rest);
+      rec(gi+1, from, cost, acc.concat([v]));
     }
-    return null;
+    // позиции нет в этой маркировке — идём к следующей
+    rec(gi+1, pos, cost+1, acc.concat([null]));
   }
-  return rec(0,0);
+  rec(0,0,0,[]);
+  return best;
 }
+// Части маркировки без пропущенных позиций — в том порядке, как они стоят в шаблоне.
 function cardParts(c){
   const groups=templateGroups(c);
   if (!groups.length) return null;
-  return parseByGroups(c.marking, groups);
+  const parsed=parseByGroups(c.marking, groups);
+  if (!parsed) return null;
+  const filled=parsed.filter(Boolean);
+  return filled.length?filled:null;
 }
 
 function migrateScheme(s){
@@ -568,7 +585,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v31 · скобки и последняя часть · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v32 · необязательные позиции · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1238,8 +1255,12 @@ function rowsFromTemplate(key, marking){
     const parsed=marking?parseByGroups(marking, tplGroups):null;
     const loose=parsed?null:(marking?partialParse(marking, tplGroups):null);
     const take=parsed||loose;
+    // Маркировка есть, а значение позиции в неё не попало (её там нет вовсе —
+    // например, без «Exd») — строка остаётся пустой. Подставлять первое значение
+    // листа нельзя: сохранение вернуло бы удалённую часть в маркировку.
+    const hasMark=!!String(marking||'').trim();
     return tplGroups.map((g,i)=>{
-      const v=(take&&take[i])||(parsed?null:g.variants[0])||null;
+      const v=(take&&take[i])||(!hasMark?g.variants[0]:null)||null;
       return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||'', pos:g.pos}
               :Object.assign(blankRow(), {pos:g.pos});
     });
@@ -2188,7 +2209,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v31</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v32</footer>
 </body>
 </html>
 
