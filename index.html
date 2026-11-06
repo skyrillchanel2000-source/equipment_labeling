@@ -47,7 +47,6 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .card-cat{font-size:12px;color:var(--mut);padding-right:20px}
 .card-proj{font-size:12px;color:var(--mut)}
 .st-dot{display:inline-block;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(17,24,39,.08);flex:0 0 auto}
-.st-dot:empty{display:none}
 .st-dot.big{width:13px;height:13px}
 .card-status{position:absolute;top:12px;right:12px}
 .st-wrap{display:flex;align-items:center;gap:6px}
@@ -631,7 +630,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v33 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v34 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1105,7 +1104,7 @@ function openView(id){
     : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
-    <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b> · Статус: <span class="st-wrap">${statusDot(c.status)?statusDot(c.status):''}<b>${esc(c.status||'не задан')}</b></span></div>
+    <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b> · <span class="st-wrap">${statusDot(c.status, true)}<b>${esc(c.status||'статус не задан')}</b></span></div>
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
     <div class="hint" id="copyHint">${COPY_HINT}</div>
@@ -2268,7 +2267,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v33</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v34</footer>
 </body>
 </html>
 
