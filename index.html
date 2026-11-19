@@ -39,7 +39,7 @@ a.icon-btn{text-decoration:none}
 input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
 label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;padding:0 22px 40px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;position:relative}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;position:relative;min-width:0}
 .card:hover{box-shadow:0 4px 16px rgba(20,40,80,.08)}
 .card.deleted{background:#f6f7fa}
 .card.deleted .card-marking{opacity:.75}
@@ -53,12 +53,12 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .st-dot.big{width:13px;height:13px}
 .card-actions .st-dot{margin-left:auto;align-self:center}
 .st-wrap{display:flex;align-items:center;gap:6px}
-.card-marking{font-size:19px;font-weight:600;line-height:2;word-break:break-word}
+.card-marking{font-size:19px;font-weight:600;line-height:2;word-break:break-word;overflow-wrap:anywhere}
 .card-scheme{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
 .card-scheme svg{width:15px;height:15px}
 .card-actions{display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:8px;border-top:1px solid var(--line)}
 .empty{text-align:center;color:var(--mut);padding:60px 20px}
-.part{padding:2px 7px;border-radius:6px;cursor:help;white-space:nowrap;transition:filter .12s,box-shadow .12s}
+.part{padding:2px 7px;border-radius:6px;cursor:help;white-space:normal;overflow-wrap:anywhere;word-break:break-word;-webkit-box-decoration-break:clone;box-decoration-break:clone;transition:filter .12s,box-shadow .12s}
 .part:hover,.part.hl{filter:saturate(1.9) brightness(1.05);box-shadow:0 0 0 2px rgba(17,24,39,.4)}
 .pc0{background:#dbeafe}.pc1{background:#dcfce7}.pc2{background:#fef9c3}.pc3{background:#ffe4e6}
 .pc4{background:#ede9fe}.pc5{background:#cffafe}.pc6{background:#ffedd5}.pc7{background:#f3f4f6}
@@ -757,7 +757,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v40 · новая часть в начале маркировки становится позицией листа · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v41 · длинные части маркировки переносятся внутри карточки · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -2506,7 +2506,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v40</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v41</footer>
 </body>
 </html>
 
