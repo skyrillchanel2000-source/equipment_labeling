@@ -164,6 +164,82 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 .tlbl{font:600 11px 'Segoe UI';fill:#1a2233;text-anchor:middle}
 .cap{font:13px 'Segoe UI';fill:#334155;text-anchor:middle}
 .wirelbl{font:10px 'Segoe UI';text-anchor:middle}
+
+/* ===== Телефон и планшет ===== */
+@media (max-width:980px){
+  .part-row{grid-template-columns:24px 24px 30px minmax(0,1fr) 30px 38px;
+    grid-template-areas:"idx grip open part close del" "sep sep sep sep unit unit" "desc desc desc char char char";
+    gap:6px;padding:8px;margin-bottom:10px;border:1px solid var(--line);border-radius:10px;background:#fbfcfe}
+  .part-row .idx{grid-area:idx}
+  .part-row .p-grip{grid-area:grip;min-height:34px}
+  .part-row .p-brk-open{grid-area:open}
+  .part-row .p-pick:not(.p-sep-pick){grid-area:part}
+  .part-row .p-brk-close{grid-area:close}
+  .part-row .p-sep-pick{grid-area:sep}
+  .part-row .p-desc{grid-area:desc}
+  .part-row .p-char{grid-area:char}
+  .part-row .p-unit{grid-area:unit}
+  .part-row .p-del{grid-area:del;min-width:0;width:38px;height:34px}
+  .part-row .p-brk{height:34px}
+  .part-row .p-drop{width:26px}
+  .part-row input,.part-row select{padding:8px}
+  .p-menu{left:0;right:0}
+  .cable-block{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .scheme-table{min-width:520px}
+  .wire-cell input{min-width:90px}
+  .jumper-row{grid-template-columns:1fr 1fr 40px}
+  .jumper-row .hint{display:none}
+  .parts-table th,.parts-table td{padding:5px 6px;font-size:12px;word-break:break-word}}
+@media (max-width:760px){
+  html{-webkit-text-size-adjust:100%}
+  header{padding:10px 12px;flex-wrap:wrap;gap:8px}
+  header h1{font-size:17px;line-height:1.25}
+  .icon-btn{min-width:40px;height:40px}
+  #busyInd{left:12px;right:12px;justify-content:center;top:8px;font-size:12px}
+  #modeBanner{padding:8px 12px;font-size:13px}
+  .tabs{padding:10px 12px 0;gap:4px}
+  .tab{flex:1 1 auto;text-align:center;padding:9px 10px;font-size:13px}
+  .filters{padding:12px;gap:8px}
+  .filters input,.filters select,#fSort{flex:1 1 100%;width:100%;min-width:0}
+  .cards{grid-template-columns:1fr;gap:10px;padding:0 10px 30px}
+  .card-marking{font-size:17px;line-height:1.9}
+  .part{white-space:normal}
+  .card-actions{gap:8px}
+  .card-scheme{flex-wrap:wrap}
+  .empty{padding:40px 14px}
+  input,select,textarea,.part-row input,.part-row select{font-size:16px}
+  .modal{padding:0}
+  .modal-box{max-width:none;width:100%;min-height:100%;border-radius:0}
+  .modal-head{padding:10px 12px;position:sticky;top:0;background:#fff;z-index:6}
+  .modal-head h3{font-size:16px}
+  .modal-body{padding:12px}
+  .modal-foot{position:sticky;bottom:0;background:#fff;z-index:6;padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+  .modal-foot .btn{flex:1}
+  .grid4,.grid2,#boxFields{grid-template-columns:1fr}
+  fieldset{padding:10px}
+  .marking-preview{font-size:15px}
+  .view-marking{font-size:19px;line-height:1.9}
+  .view-meta,.mk1c{overflow-wrap:anywhere}
+  .mk1c b{display:inline-block;max-width:100%}
+  .scheme-actions{flex-wrap:wrap}
+  .scheme-actions span{font-size:13px}
+  .scheme-row{flex-wrap:wrap;gap:8px}
+  .parts-table,.parts-table tbody,.parts-table tr,.parts-table td{display:block}
+  .parts-table thead{display:none}
+  .parts-table tr{border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:6px}
+  .parts-table td{border:0;padding:1px 0}
+  .parts-table td:first-child{display:none}
+  .parts-table td:empty{display:none}
+  .parts-table td:nth-child(2){font-size:15px;font-weight:600}
+  .parts-table td:nth-child(3){font-size:12px;color:var(--mut)}
+  .parts-table td:nth-child(4){font-size:12px;color:var(--mut)}
+  .parts-table td:nth-child(4):not(:empty)::before{content:"Характеристика: "}
+  h4{font-size:13px}
+  pre{font-size:12px;padding:10px}
+  .cable-head{grid-template-columns:1fr 92px 40px}
+  #tooltip{max-width:calc(100vw - 16px);font-size:13px}
+  .svg-wrap{max-width:100%}
+}
 </style>
 </head>
 <body>
@@ -406,6 +482,15 @@ document.addEventListener('mouseout', e => {
   if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) hideTip();
 });
 window.addEventListener('scroll', hideTip, true);
+// На телефоне наведения нет: описание части показывается тапом по ней, любой другой тап скрывает
+let tipTouchEl = null;
+document.addEventListener('pointerup', e => {
+  if (e.pointerType !== 'touch') return;
+  const t = e.target.closest('.part[data-tip]');
+  if (!t){ hideTip(); tipTouchEl = null; return; }
+  if (t === tipTouchEl){ hideTip(); tipTouchEl = null; return; }
+  tipTouchEl = t; showTip(t);
+}, {passive:true});
 
 const ICONS = {
   plus:'<path d="M12 5v14M5 12h14"/>',
@@ -630,7 +715,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v35 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v36 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -2267,7 +2352,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v35</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v36</footer>
 </body>
 </html>
 
