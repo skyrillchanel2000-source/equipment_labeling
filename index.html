@@ -46,6 +46,9 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .del-info{font-size:12px;color:var(--danger)}
 .card-cat{font-size:12px;color:var(--mut)}
 .card-proj{font-size:12px;color:var(--mut)}
+.card-link{font-size:12px}
+.card-link a{color:#2563eb;text-decoration:none}
+.card-link a:hover{text-decoration:underline}
 .st-dot{display:inline-block;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(17,24,39,.08);flex:0 0 auto}
 .st-dot.big{width:13px;height:13px}
 .card-actions .st-dot{margin-left:auto;align-self:center}
@@ -316,6 +319,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <label>Проект<input id="eProject" list="dlProjects" autocomplete="off" placeholder="несколько проектов — через запятую: АГХК, БГХК"></label>
         <label>Статус<span class="st-wrap"><span id="eStatusDot" class="st-dot"></span><select id="eStatus"></select></span></label>
       </div>
+      <label>Ссылка<input id="eLink" type="text" autocomplete="off" placeholder="https://… — страница прибора, паспорт, описание"></label>
       <label>Текущая маркировка из 1С<input id="eMarking1c" autocomplete="off" placeholder="вставьте маркировку так, как она записана в 1С"></label>
       <fieldset>
         <legend>Части маркировки</legend>
@@ -420,7 +424,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbzltnti8p9CHGfNmIeLJiNcHzqiKny1RbFwpGk_eABvX_XK3n1hShW4pQI_W_tM_o4/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzV58rhEz7RWbaznnbR0mBGv0Fl8q-J334w-sf40qGqSTvM28TqF8MuuzDmtrafeVWR/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -718,7 +722,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v37 · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v38 · поле «Ссылка» · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -744,9 +748,19 @@ function normSep(v){
   return s;
 }
 function normText(v){ return String(v==null?'':v).replace(/[\s\u00a0]+$/,'').replace(/^[\s\u00a0]+/,''); }
+// Ссылка: пускаем в href только http(s); «www.…» достраиваем до https, остальное показываем текстом
+function linkURL(v){
+  let s=String(v==null?'':v).trim();
+  if (!s) return '';
+  if (/^www\./i.test(s)) s='https://'+s;
+  return /^https?:\/\//i.test(s) ? s : '';
+}
+function linkHost(u){
+  try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return u; }
+}
 const CARD_FIELDS=[['marking','маркировка'],['marking1c','маркировка 1С'],['category','категория'],
   ['manufacturer','производитель'],['model','модель'],['project','проект'],['status','статус'],
-  ['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
+  ['link','ссылка'],['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
 // Разделитель карточки — производное от шаблона модели, в таблицу он пишется как «(пробел)»/«(нет)».
 // Его расхождение не должно держать операцию в очереди навсегда, поэтому в подтверждение он не входит.
 const CONFIRM_FIELDS=CARD_FIELDS.filter(([k])=>k!=='sep');
@@ -1067,6 +1081,7 @@ function trashCardHTML(c){
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
       <div class="card-marking">${markingHTML(c)}</div>
       ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
+      ${c.link?`<div class="card-link">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(linkHost(linkURL(c.link)))}</a>`:esc(c.link)}</div>`:''}
       ${c.deletedAt?`<div class="del-info">Удалено: ${esc(c.deletedAt)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''}</div>` : ''}
       <div class="card-actions">
@@ -1088,7 +1103,7 @@ function renderCards(){
     if (q){
       const ps=cardParts(c)||[];
       const hay=[c.id||'', c.marking||'', c.marking1c||'', c.model, c.category, c.manufacturer,
-        c.project||'', c.status||'', c.comment,
+        c.project||'', c.status||'', c.link||'', c.comment,
         ...ps.flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
       if (!searchMatch(hay, q)) return false;
     }
@@ -1105,6 +1120,7 @@ function renderCards(){
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
       <div class="card-marking">${markingHTML(c)}</div>
       ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
+      ${c.link?`<div class="card-link">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(linkHost(linkURL(c.link)))}</a>`:esc(c.link)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
       <div class="card-actions">
         <button class="icon-btn" data-tip="Открыть карточку" data-act="view" data-id="${esc(c.id)}">${icon('eye')}</button>
@@ -1193,6 +1209,7 @@ function openView(id){
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
     <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b>${c.status?` · ${statusDot(c.status, true)}`:''}</div>
+    ${c.link?`<div class="view-meta">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(c.link)}</a>`:esc(c.link)}</div>`:''}
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
     <div class="hint" id="copyHint">${COPY_HINT}</div>
@@ -1827,7 +1844,7 @@ async function pushTemplateChanges(rows, key){
 
 function openEdit(src, mode){
   editId=null; editBaseOn='';
-  let base={category:'',manufacturer:'',model:'',sep:'-',marking:'',marking1c:'',comment:'',scheme:null,schemeText:'',basedOn:'',date:''};
+  let base={category:'',manufacturer:'',model:'',sep:'-',marking:'',marking1c:'',project:'',status:'',link:'',comment:'',scheme:null,schemeText:'',basedOn:'',date:''};
   $('#editTitle').textContent='Новая маркировка';
   if (mode==='edit' && src){
     base=JSON.parse(JSON.stringify(src)); editId=src.id; editBaseOn=src.basedOn||'';
@@ -1841,6 +1858,7 @@ function openEdit(src, mode){
   $('#eCategory').value=base.category||''; $('#eManufacturer').value=base.manufacturer||'';
   $('#eModel').value=base.model||''; $('#eComment').value=base.comment||'';
   $('#eProject').value=base.project||'';
+  $('#eLink').value=base.link||'';
   $('#eStatus').innerHTML=statusSelectHTML(base.status||'');
   syncStatusDot();
   $('#eMarking1c').value=base.marking1c||'';
@@ -1874,6 +1892,7 @@ function collectCard(){
     sep: first?(first.sep||'-'):'-',
     project: $('#eProject').value.trim(),
     status: $('#eStatus').value,
+    link: $('#eLink').value.trim(),
     comment: $('#eComment').value.trim(),
     scheme: draftScheme, schemeType: draftScheme?draftScheme.type:0,
     schemeText: draftSchemeText, basedOn: editBaseOn
@@ -2269,9 +2288,9 @@ function fillDatalists(){
 // ================= Экспорт CSV =================
 function exportCSV(){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Проект','Статус','Маркировка','Части маркировки','Схема','Комментарий'].join(';')];
+  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Проект','Статус','Ссылка','Маркировка','Части маркировки','Схема','Комментарий'].join(';')];
   cards.forEach(c=>lines.push([
-    c.id, c.date, c.category, c.manufacturer, c.model, c.project||'', c.status||'', c.marking||'',
+    c.id, c.date, c.category, c.manufacturer, c.model, c.project||'', c.status||'', c.link||'', c.marking||'',
     (cardParts(c)||[]).map(p=>[p.part,p.desc||'',charUnit(p)].join(' :: ')).join(' | '),
     c.schemeText||'', c.comment
   ].map(q).join(';')));
@@ -2409,7 +2428,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v37</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v38</footer>
 </body>
 </html>
 
