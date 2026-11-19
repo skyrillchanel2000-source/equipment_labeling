@@ -681,14 +681,49 @@ function parseByGroups(mark, groups){
   rec(0,0,0,[]);
   return best;
 }
+// Маркировка может начинаться с части, которой ещё нет в листе-шаблоне
+// (в 1С пишут полное название прибора перед моделью). Отрезаем начало и
+// разбираем остаток: такая часть показывается отдельной строкой и при
+// сохранении становится новой позицией листа со сдвигом номеров.
+function splitPrefix(mark, groups){
+  const s=String(mark||'').trim();
+  if (!s || !groups || !groups.length || !groups[0].variants) return null;
+  const cands=[];
+  groups[0].variants.forEach(v=>{
+    const part=String(v.part||'');
+    if (!part) return;
+    let from=1;
+    while (true){
+      const k=s.indexOf(part, from);
+      if (k<0) break;
+      if (cands.indexOf(k)<0) cands.push(k);
+      from=k+1;
+    }
+  });
+  cands.sort((a,b)=>a-b);
+  for (let ci=0; ci<cands.length; ci++){
+    const i=cands[ci];
+    const vals=parseByGroups(s.slice(i), groups);
+    if (!vals || !vals[0]) continue;
+    const head=s.slice(0,i).replace(/[\s\-–—,;:/_]+$/,'');
+    if (!head) continue;
+    return { part:head, sep:s.slice(head.length,i) || ' ', vals:vals };
+  }
+  return null;
+}
 // Части маркировки без пропущенных позиций — в том порядке, как они стоят в шаблоне.
 function cardParts(c){
   const groups=templateGroups(c);
   if (!groups.length) return null;
   const parsed=parseByGroups(c.marking, groups);
-  if (!parsed) return null;
-  const filled=parsed.filter(Boolean);
-  return filled.length?filled:null;
+  if (parsed){
+    const filled=parsed.filter(Boolean);
+    return filled.length?filled:null;
+  }
+  const pre=splitPrefix(c.marking, groups);
+  if (!pre) return null;
+  const rest=pre.vals.filter(Boolean);
+  return [{part:pre.part, sep:pre.sep, desc:'Нет в шаблоне модели', char:'', unit:''}].concat(rest);
 }
 
 function migrateScheme(s){
@@ -722,7 +757,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v39 · переименование кода 1С без дубля · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v40 · новая часть в начале маркировки становится позицией листа · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1420,17 +1455,22 @@ function rowsFromTemplate(key, marking){
   tplGroups=rows&&rows.length?groupModelRows(rows):[];
   if (tplGroups.length){
     const parsed=marking?parseByGroups(marking, tplGroups):null;
-    const loose=parsed?null:(marking?partialParse(marking, tplGroups):null);
-    const take=parsed||loose;
+    const pre=parsed?null:(marking?splitPrefix(marking, tplGroups):null);
+    const loose=(parsed||pre)?null:(marking?partialParse(marking, tplGroups):null);
+    const take=parsed||(pre?pre.vals:loose);
     // Маркировка есть, а значение позиции в неё не попало (её там нет вовсе —
     // например, без «Exd») — строка остаётся пустой. Подставлять первое значение
     // листа нельзя: сохранение вернуло бы удалённую часть в маркировку.
     const hasMark=!!String(marking||'').trim();
-    return tplGroups.map((g,i)=>{
+    const list=tplGroups.map((g,i)=>{
       const v=(take&&take[i])||(!hasMark?g.variants[0]:null)||null;
       return v?{part:v.part, sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||'', pos:g.pos}
               :Object.assign(blankRow(), {pos:g.pos});
     });
+    // часть перед началом шаблона: у строки нет позиции, при сохранении
+    // она добавится в лист как новая позиция
+    if (pre) list.unshift({part:pre.part, sep:pre.sep, desc:'', char:'', unit:'', pos:null});
+    return list;
   }
   if (marking) return [{part:marking, sep:'', desc:'', char:'', unit:'', pos:null}];
   return [blankRow()];
@@ -1782,10 +1822,11 @@ function openEditor(marking){
   const rows=modelRowsFor(tplKey);
   tplGroups=rows&&rows.length?groupModelRows(rows):[];
   const m=String(marking||'').trim();
-  const parsedOk=!(m && tplGroups.length && !parseByGroups(m, tplGroups));
+  const parsedOk=!(m && tplGroups.length && !parseByGroups(m, tplGroups) && !splitPrefix(m, tplGroups));
   editRows=rowsFromTemplate(tplKey, m);
   normalizeTail();
-  tplWarn=parsedOk?'':'Маркировка не совпала с шаблоном — проверьте значения частей.';
+  const hasPrefix=!!(m && tplGroups.length && !parseByGroups(m, tplGroups) && splitPrefix(m, tplGroups));
+  tplWarn=parsedOk?'':(hasPrefix?'Начало маркировки не из шаблона — при сохранении станет новой позицией листа.':'Маркировка не совпала с шаблоном — проверьте значения частей.');
   renderTemplate();
   renderRows();
 }
@@ -1804,32 +1845,59 @@ function onTemplateKeyChange(){
 // считаем их одним значением, иначе правка разделителя плодит дубли в шаблоне.
 function sepAlias(s){ const v=String(s==null?'':s); return v==='-'?'':v; }
 // Что изменить на листе-шаблоне после сохранения карточки.
+// Строка, для которой на листе нет позиции, становится НОВОЙ ПОЗИЦИЕЙ:
+// сначала вставка (`insertPos`) со сдвигом номеров последующих позиций,
+// затем значение этой позиции. Повторный вызов после сохранения изменений
+// не находит — позиции сдвинулись, и строки совпадают с листом.
 function templateJobs(rows, key){
   if (!key) return [];
-  const known=modelRowsFor(key)||[];
-  const byPos={};
-  known.forEach(v=>{ (byPos[v.pos]=byPos[v.pos]||[]).push(v); });
-  const maxPos=known.reduce((m,v)=>Math.max(m, Number(v.pos)||0), 0);
+  const groups=[];
+  (modelRowsFor(key)||[]).forEach(v=>{
+    const last=groups[groups.length-1];
+    if (last && last.pos===v.pos) last.variants.push(v);
+    else groups.push({pos:v.pos, variants:[v]});
+  });
   const seq=rows.filter(r=>(r.part||'').trim());
   const jobs=[];
+  let cur=0;
   seq.forEach((r,i)=>{
     const part=(r.part||'').trim();
-    if (!part) return;
-    const pos=r.pos!=null?r.pos:(i+1);
     // у последней части маркировки разделитель в неё не попадает — важны только скобки
-    const isTail = i===seq.length-1 && pos===maxPos;
-    const sep = isTail ? closeBrackets(r.sep) : (r.sep||'');
-    const list=byPos[pos]||[];
-    const hit=list.find(v=>v.part===part &&
-      (isTail ? closeBrackets(v.sep)===sep : sepAlias(v.sep)===sepAlias(sep)));
-    if (!hit){
-      jobs.push({action:'addVariant', model:key, pos:pos, part:part, sep:sep,
-                 desc:r.desc||'', char:r.char||'', unit:r.unit||''});
-    } else if ((hit.desc||'')!==(r.desc||'') || (hit.char||'')!==(r.char||'') ||
-               (hit.unit||'')!==(r.unit||'') || (hit.sep||'')!==sep){
-      jobs.push({action:'updateVariant', model:key, pos:pos, part:part, oldSep:hit.sep,
-                 sep:sep, desc:r.desc||'', char:r.char||'', unit:r.unit||''});
+    const isTail=i===seq.length-1;
+    const sep=isTail?closeBrackets(r.sep):(r.sep||'');
+    const desc=r.desc||'', char=r.char||'', unit=r.unit||'';
+    const same=v=>v.part===part && (isTail?closeBrackets(v.sep)===sep:sepAlias(v.sep)===sepAlias(sep));
+    let idx=-1;
+    if (r.pos!=null){
+      for (let k=cur;k<groups.length;k++){ if (groups[k].pos===r.pos){ idx=k; break; } }
+      // нумерация могла сдвинуться после вставки — тогда позицию узнаём по значению
+      if (idx<0 && cur<groups.length && groups[cur].variants.some(same)) idx=cur;
     }
+    if (idx<0){
+      const pos=cur<groups.length?groups[cur].pos
+        :((groups.length?groups[groups.length-1].pos:0)+1);
+      jobs.push({action:'insertPos', model:key, pos:pos, part:part, sep:sep,
+                 desc:desc, char:char, unit:unit});
+      for (let k=cur;k<groups.length;k++) groups[k].pos++;
+      groups.splice(cur,0,{pos:pos, variants:[{part:part, sep:sep, desc:desc, char:char, unit:unit}]});
+      // строка теперь стоит на своей позиции: повторная сверка не вставит её снова
+      r.pos=pos;
+      cur++;
+      return;
+    }
+    const g=groups[idx];
+    const hit=g.variants.find(same);
+    if (!hit){
+      jobs.push({action:'addVariant', model:key, pos:g.pos, part:part, sep:sep,
+                 desc:desc, char:char, unit:unit});
+      g.variants.push({part:part, sep:sep, desc:desc, char:char, unit:unit});
+    } else if ((hit.desc||'')!==desc || (hit.char||'')!==char || (hit.unit||'')!==unit ||
+               (hit.sep||'')!==sep){
+      jobs.push({action:'updateVariant', model:key, pos:g.pos, part:part, oldSep:hit.sep,
+                 sep:sep, desc:desc, char:char, unit:unit});
+      hit.sep=sep; hit.desc=desc; hit.char=char; hit.unit=unit;
+    }
+    cur=idx+1;
   });
   return jobs;
 }
@@ -2438,7 +2506,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v39</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v40</footer>
 </body>
 </html>
 
