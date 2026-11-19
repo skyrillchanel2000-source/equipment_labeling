@@ -357,6 +357,8 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <label><input type="radio" name="sType" value="1"> В оборудовании только клеммы</label>
         <label><input type="radio" name="sType" value="2"> Клеммы + комплектный кабель</label>
         <label><input type="radio" name="sType" value="3"> Кабель из оборудования в комплектную коробку с клеммами</label>
+        <label><input type="radio" name="sType" value="4"> Коробка с кабелем без клемм</label>
+        <label><input type="radio" name="sType" value="5"> Только кабель</label>
       </div>
       <div id="boxFields" class="grid2 hidden">
         <label>Маркировка коробки<input id="sBoxMark" placeholder="например: X1"></label>
@@ -523,6 +525,7 @@ const charUnit = p => ((p.char||'') + (p.unit ? ' ' + p.unit : '')).trim();
 const partTip  = p => [p.desc||'', charUnit(p)].filter(Boolean).join(' · ') || 'без описания';
 
 const SEP_CHOICES = [['','(нет)'],['-','дефис «-»'],[' ','пробел'],['/','слэш «/»'],['.','точка «.»'],
+  [', ','запятая + пробел «, »'],['. ','точка + пробел «. »'],
   ['_','подчёркивание'],['(','скобка «(»'],[')','скобка «)»']];
 const sepChoices = sel => SEP_CHOICES.map(([v,l]) =>
   `<option value="${esc(v)}"${v===(sel||'')?' selected':''}>${esc(l)}</option>`).join('');
@@ -547,7 +550,7 @@ let filters={q:'',cat:'',man:''};
 try{ filters=Object.assign({q:'',cat:'',man:''}, JSON.parse(localStorage.getItem(LS_FILTERS)||'{}')); }catch(e){}
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let sDraft=null, currentViewId=null, currentTab='main';
-const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка'];
+const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка','коробка с кабелем без клемм','только кабель'];
 // Статус карточки — огонёк в правом верхнем углу. Пустое значение = статус не задан.
 const STATUSES = [
   {v:'Актуальный',     color:'#1a9e57'},
@@ -715,7 +718,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v36 · проект и статус · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v37 · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1921,20 +1924,22 @@ function termBlockHTML(){
     </div></div>`;
 }
 function cableBlockHTML(ci, c){
-  const is3=sDraft.type===3;
+  const is3=sDraft.type===3, is4=sDraft.type===4, noTerm=(sDraft.type===4||sDraft.type===5);
   const rows=c.rows.map((r,ri)=>`
     <tr>
       <td class="idx">${ri+1}</td>
-      <td><input class="r-term" data-ri="${ri}" value="${esc(r.term||'')}" placeholder="G / G0 / 1…"></td>
+      ${noTerm?'':`<td><input class="r-term" data-ri="${ri}" value="${esc(r.term||'')}" placeholder="G / G0 / 1…"></td>`}
       <td class="c-cable-cell">${esc(c.mark||'—')}</td>
       <td class="wire-cell"><span class="sw" style="background:${wireColor(r.wire)}"></span>
         <input class="r-wire" list="dlWires" data-ri="${ri}" value="${esc(r.wire||'')}" placeholder="цвет жилы"></td>
       ${is3?`<td><input class="r-box" data-ri="${ri}" value="${esc(r.boxTerm||'')}" placeholder="X1:1…"></td>`:''}
-      <td><button class="icon-btn danger row-del" data-ri="${ri}" data-tip="Удалить клемму">${icon('trash')}</button></td>
+      <td><button class="icon-btn danger row-del" data-ri="${ri}" data-tip="Удалить ${noTerm?'жилу':'клемму'}">${icon('trash')}</button></td>
     </tr>`).join('');
-  const head=is3
-    ? '<tr><th>№</th><th>Маркировка клеммы</th><th>Маркировка кабеля</th><th>Цвет жилы</th><th>Клемма в коробке</th><th></th></tr>'
-    : '<tr><th>№</th><th>Маркировка клеммы</th><th>Маркировка кабеля</th><th>Цвет жилы</th><th></th></tr>';
+  const head=noTerm
+    ? '<tr><th>№</th><th>Маркировка кабеля</th><th>Цвет жилы</th><th></th></tr>'
+    : is3
+      ? '<tr><th>№</th><th>Маркировка клеммы</th><th>Маркировка кабеля</th><th>Цвет жилы</th><th>Клемма в коробке</th><th></th></tr>'
+      : '<tr><th>№</th><th>Маркировка клеммы</th><th>Маркировка кабеля</th><th>Цвет жилы</th><th></th></tr>';
   return `<div class="cable-block" data-ci="${ci}">
     <div class="cable-head">
       <label>Маркировка кабеля<input class="c-mark" list="dlCables" value="${esc(c.mark||'')}" placeholder="например: YDY 3×1,5"></label>
@@ -1943,13 +1948,14 @@ function cableBlockHTML(ci, c){
     </div>
     <table class="scheme-table"><thead>${head}</thead><tbody>${rows}</tbody></table>
     <div class="block-actions">
-      <button class="icon-btn add-term" data-ci="${ci}" data-tip="Добавить клемму — кабель подключается всеми жилами">${icon('plus')}</button>
-      <span class="hint">Добавить клемму</span>
+      <button class="icon-btn add-term" data-ci="${ci}" data-tip="${noTerm?'Добавить жилу':'Добавить клемму — кабель подключается всеми жилами'}">${icon('plus')}</button>
+      <span class="hint">${noTerm?'Добавить жилу':'Добавить клемму'}</span>
     </div></div>`;
 }
 function renderJumpers(){
   fillTermsDatalist();
-  $('#jumpersWrap').innerHTML=(sDraft.jumpers||[]).map((j,ji)=>`
+  const noTerm=(sDraft.type===4||sDraft.type===5);
+  $('#jumpersWrap').innerHTML=noTerm ? '' : (sDraft.jumpers||[]).map((j,ji)=>`
     <div class="jumper-row">
       <span class="hint">перемычка</span>
       <input class="j-a" list="dlTerms" data-ji="${ji}" value="${esc(j.a||'')}" placeholder="клемма 1">
@@ -1967,9 +1973,11 @@ function renderCables(){
 }
 function renderSchemeEditor(){
   document.querySelector(`input[name="sType"][value="${sDraft.type}"]`).checked=true;
-  $('#boxFields').classList.toggle('hidden', sDraft.type!==3);
-  if (sDraft.type===3){ $('#sBoxMark').value=sDraft.box.mark||''; $('#sBoxDesc').value=sDraft.box.desc||''; }
+  const noTerm=(sDraft.type===4||sDraft.type===5);
+  $('#boxFields').classList.toggle('hidden', !(sDraft.type===3||sDraft.type===4));
+  if (sDraft.type===3||sDraft.type===4){ $('#sBoxMark').value=sDraft.box.mark||''; $('#sBoxDesc').value=sDraft.box.desc||''; }
   $('#addCableRow').classList.toggle('hidden', sDraft.type===1);
+  $('#addJumperRow').classList.toggle('hidden', noTerm);
   renderCables();
 }
 function schemePreviewFill(){ if(sDraft) $('#schemePreview').textContent = schemeToText(sDraft)||'—'; }
@@ -1996,6 +2004,11 @@ function onSchemeType(e){
     : (sDraft.cables||[]).flatMap(c=>(c.rows||[]).map(r=>({term:r.term||'',wire:r.wire||'',boxTerm:r.boxTerm||''})));
   if (t===1){
     sDraft={type:1, terminals:flat.length?flat.map(x=>({term:x.term})):[{term:''}], jumpers:jmp};
+  } else if (t===4 || t===5){
+    const prev=(sDraft.type>=2 && sDraft.cables && sDraft.cables[0]) ? sDraft.cables[0] : null;
+    sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
+      cables:[{mark:(prev&&prev.mark)||'', len:(prev&&prev.len)||'',
+               rows:flat.length?flat.map(x=>({wire:x.wire||''})):[{wire:''}]}], jumpers:[]};
   } else {
     const prev=(sDraft.type>=2 && sDraft.cables && sDraft.cables[0]) ? sDraft.cables[0] : null;
     sDraft={type:t, box:sDraft.box||{mark:'',desc:''},
@@ -2013,6 +2026,14 @@ function applyScheme(){
     const rows=sDraft.terminals.filter(r=>(r.term||'').trim());
     if (!rows.length) return alert('Добавьте хотя бы одну клемму');
     clean={type:1, terminals:rows.map(r=>({term:r.term.trim()})), jumpers};
+  } else if (sDraft.type===4 || sDraft.type===5){
+    const cables=sDraft.cables
+      .map(c=>({ mark:(c.mark||'').trim(), len:(c.len||'').trim(),
+        rows:(c.rows||[]).filter(r=>(r.wire||'').trim()).map(r=>({wire:r.wire.trim()})) }))
+      .filter(c=>c.mark||c.rows.length);
+    if (!cables.length) return alert('Добавьте хотя бы один кабель');
+    clean={type:sDraft.type, cables, jumpers:[]};
+    if (sDraft.type===4) clean.box={mark:$('#sBoxMark').value.trim(), desc:$('#sBoxDesc').value.trim()};
   } else {
     const cables=sDraft.cables
       .map(c=>({ mark:(c.mark||'').trim(), len:(c.len||'').trim(),
@@ -2049,14 +2070,15 @@ function schemeInput(e){
 function schemeClick(e){
   const btn=e.target.closest('button'); if(!btn || !sDraft) return;
   const block=btn.closest('.cable-block');
+  const noTerm=(sDraft.type===4||sDraft.type===5);
   if (btn.classList.contains('add-term')){
     if (sDraft.type===1) sDraft.terminals.push({term:''});
-    else sDraft.cables[+block.dataset.ci].rows.push({term:'',wire:'',boxTerm:''});
+    else sDraft.cables[+block.dataset.ci].rows.push(noTerm?{wire:''}:{term:'',wire:'',boxTerm:''});
     renderCables();
   } else if (btn.classList.contains('row-del')){
     const ri=+btn.dataset.ri;
     if (sDraft.type===1){ sDraft.terminals.splice(ri,1); if(!sDraft.terminals.length) sDraft.terminals=[{term:''}]; }
-    else { const c=sDraft.cables[+block.dataset.ci]; c.rows.splice(ri,1); if(!c.rows.length) c.rows=[{term:'',wire:'',boxTerm:''}]; }
+    else { const c=sDraft.cables[+block.dataset.ci]; c.rows.splice(ri,1); if(!c.rows.length) c.rows=[noTerm?{wire:''}:{term:'',wire:'',boxTerm:''}]; }
     renderCables();
   } else if (btn.classList.contains('c-del')){
     sDraft.cables.splice(+btn.dataset.ci,1);
@@ -2107,6 +2129,25 @@ function schemeToText(s){
       L.push(...lines);
     }
     pushJumpers(L,J);
+  } else if (s.type===4 || s.type===5){
+    const lines=[];
+    (s.cables||[]).forEach(c=>{
+      const rr=(c.rows||[]).filter(r=>r.wire);
+      if (!rr.length){ if (c.mark) lines.push(c.mark+T+(c.len||'')+T); return; }
+      rr.forEach(r=>lines.push((c.mark||'')+T+(c.len||'')+T+(r.wire||'')));
+    });
+    if (!lines.length && !J.length) return '';
+    if (s.type===4){
+      L.push('Схема: кабель(и) из оборудования в комплектную коробку без клемм');
+      L.push('Коробка: '+((s.box&&s.box.mark)||'—')+((s.box&&s.box.desc)?' — '+s.box.desc:''));
+    } else {
+      L.push('Схема: в оборудовании только кабель');
+    }
+    if (lines.length){
+      L.push('Маркировка кабеля'+T+'Длина'+T+'Цвет жилы');
+      L.push(...lines);
+    }
+    pushJumpers(L,J);
   } else {
     const lines=[];
     (s.cables||[]).forEach(c=>c.rows.forEach(r=>{
@@ -2138,6 +2179,7 @@ function schemeToSVG(s, card){
     });
   }
   const hasCable=s.type>=2;
+  const hasTerms=s.type===1||s.type===2||s.type===3;
   const widths=groups.map(g=>Math.max(g.rows.length,1)*spacing);
   const contentW=widths.reduce((a,b)=>a+b,0)+gap*Math.max(groups.length-1,0);
   const W=Math.max(560, contentW+pad*2), cx=W/2;
@@ -2154,6 +2196,7 @@ function schemeToSVG(s, card){
   });
   out+=`<rect x="20" y="60" width="${W-40}" height="90" rx="10" class="eq"/>`;
   terms.forEach(t=>{
+    if (!hasTerms) return;
     out+=`<text x="${t.x}" y="118" class="tlbl">${esc(t.r.term||'—')}</text>`;
     out+=`<circle cx="${t.x}" cy="136" r="10" class="term"/>`;
   });
@@ -2171,7 +2214,7 @@ function schemeToSVG(s, card){
   if (s.type===1){
     H=205;
     out+=`<text x="${cx}" y="185" class="cap">Клеммы: ${groups[0].rows.map(r=>esc(r.term)).join(', ')}</text>`;
-  } else if (s.type===2){
+  } else if (s.type===2 || s.type===5){
     H=318;
     terms.forEach(t=>{
       const col=wireColor(t.r.wire);
@@ -2179,6 +2222,20 @@ function schemeToSVG(s, card){
       out+=`<rect x="${t.x-8}" y="266" width="16" height="11" rx="2" fill="${col}" stroke="#333"/>`;
       out+=wireLbl(t.x, t.r.wire, 206);
     });
+  } else if (s.type===4){
+    const xs=terms.map(t=>t.x);
+    const left=Math.min(...xs)-34, bw=Math.max(...xs)-Math.min(...xs)+68;
+    out+=`<rect x="${left}" y="300" width="${bw}" height="76" rx="10" class="box"/>`;
+    terms.forEach(t=>{
+      const col=wireColor(t.r.wire);
+      out+=`<line x1="${t.x}" y1="146" x2="${t.x}" y2="300" stroke="${col}" stroke-width="4"/>`;
+      out+=wireLbl(t.x, t.r.wire, 218);
+    });
+    out+=`<text x="${left+bw/2}" y="334" class="cap">КОРОБКА: ${esc((s.box&&s.box.mark)||'—')} · без клемм</text>`;
+    if (s.box && s.box.desc){
+      out+=`<text x="${left+bw/2}" y="360" class="cap" style="font-size:11px;fill:#68738a">${esc(s.box.desc)}</text>`;
+      H=378;
+    } else H=356;
   } else {
     const xs=terms.map(t=>t.x);
     const left=Math.min(...xs)-34, bw=Math.max(...xs)-Math.min(...xs)+68;
@@ -2352,7 +2409,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v36</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v37</footer>
 </body>
 </html>
 
