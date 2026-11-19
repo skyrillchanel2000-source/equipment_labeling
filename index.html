@@ -722,7 +722,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v38 · поле «Ссылка» · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v39 · переименование кода 1С без дубля · схемы без клемм · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -984,13 +984,23 @@ function queueOp(payload){
     .then(() => { busy(false); });
   return opQueue;
 }
-async function persistCard(card){
+async function persistCard(card, oldId){
+  // код 1С переименован в редакторе — это та же карточка, а не новая:
+  // старую запись убираем из локального списка и из очереди, сервер переносит строку
+  const from=(oldId && String(oldId)!==String(card.id)) ? String(oldId) : '';
+  if (from){
+    cards=cards.filter(c=>String(c.id)!==from);
+    if (pendingOps.some(o=>String(o.id)===from)){
+      pendingOps=pendingOps.filter(o=>String(o.id)!==from);
+      saveOps();
+    }
+  }
   const i=cards.findIndex(c=>String(c.id)===String(card.id));
   if(i>=0) cards[i]=card; else cards.unshift(card);
   addOp('save', card.id, card);
   localStorage.setItem(LS_CARDS, JSON.stringify(cards));
   refreshUI();
-  queueOp({action:'save', card}).then(()=>setTimeout(loadCards, 600));
+  queueOp({action:'save', card, oldId: from}).then(()=>setTimeout(loadCards, 600));
 }
 
 // ================= Список карточек =================
@@ -1902,7 +1912,7 @@ async function saveCard(){
   const card=collectCard(); if(!card) return;
   const rows=JSON.parse(JSON.stringify(editRows));
   const key=tplKey;
-  await persistCard(card);
+  await persistCard(card, editId);
   $('#editModal').classList.add('hidden');
   pushTemplateChanges(rows, key);
 }
@@ -2428,7 +2438,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v38</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v39</footer>
 </body>
 </html>
 
