@@ -769,7 +769,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v42 · черновик редактора хранится в браузере, пока лист модели не создан в таблице · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v43 · черновик редактора в браузере; лист модели считается созданным, когда позиции уже в таблице · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -2043,21 +2043,38 @@ function templateJobs(rows, key){
   });
   return jobs;
 }
-async function pushTemplateChanges(rows, key){
+// Дождаться окончания текущей загрузки: loadCards при loading=true просто
+// выходит, и проверка шла бы по старым данным.
+async function waitIdle(){
+  for (let i=0;i<24 && loading;i++) await new Promise(r=>setTimeout(r,250));
+}
+async function refreshCards(){
+  await waitIdle();
+  await loadCards();
+  await waitIdle();
+}
+// Что изменить на листе-шаблоне после сохранения карточки и легло ли это в Google.
+// hadSheet — был ли лист модели до сохранения: у новой модели успех наступает,
+// как только лист появился и в нём столько же позиций, сколько частей в карточке.
+async function pushTemplateChanges(rows, key, hadSheet){
   const jobs=templateJobs(rows, key);
   if (!jobs.length) return true;
   if (!modelsUrl){
     setBanner('Развёрнута старая версия скрипта: части в лист «'+key+'» не сохранятся. Обновите Код.gs и разверните новую версию.','warn');
     return false;
   }
+  const parts=rows.filter(r=>(r.part||'').trim()).length;
+  const posCount=()=>{ const s=modelRowsFor(key)||[]; return new Set(s.map(v=>v.pos)).size; };
   for (const job of jobs){
     try{ await postToSheet(job); }catch(e){}
   }
-  // Google отвечает не сразу — проверяем несколько раз, прежде чем ругаться
-  for (let attempt=0; attempt<4; attempt++){
-    await new Promise(res=>setTimeout(res, 2000));
-    await loadCards();
+  // Google отвечает не сразу (POST идёт no-cors), а listAll кэшируется —
+  // поэтому ждём и перечитываем несколько раз
+  for (let attempt=0; attempt<8; attempt++){
+    await new Promise(res=>setTimeout(res, 1500));
+    await refreshCards();
     if (!templateJobs(rows, key).length) return true;
+    if (!hadSheet && posCount()>=parts) return true;
   }
   setBanner('Части не записались в лист «'+key+'»: в таблице их нет. Проверьте, что развёрнута новая версия скрипта Код.gs.','warn');
   return false;
@@ -2127,6 +2144,7 @@ async function saveCard(){
   const card=collectCard(); if(!card) return;
   const rows=JSON.parse(JSON.stringify(editRows));
   const key=tplKey, draftKey=draftKeyNow();
+  const hadSheet=!!(modelRowsFor(key)||[]).length;
   await persistCard(card, editId);
   // черновик снимаем только когда части реально легли на лист модели:
   // пока лист не создан, значения остаются в буфере браузера
@@ -2134,7 +2152,7 @@ async function saveCard(){
   writeDraft();
   draftSuspended=true;
   $('#editModal').classList.add('hidden');
-  pushTemplateChanges(rows, key).then(ok=>{
+  pushTemplateChanges(rows, key, hadSheet).then(ok=>{
     if (ok){ dropDraft(draftKey); return; }
     draftSuspended=false;
     setBanner('Значения сохранены в буфере браузера: лист «'+key+'» ещё не создан в Google. '
@@ -2679,7 +2697,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v42</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v43</footer>
 </body>
 </html>
 
