@@ -71,7 +71,13 @@ label{display:block;font-size:13px;color:var(--mut);margin-bottom:10px}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
 .modal-head h3{margin:0;font-size:17px}
 .modal-body{padding:16px 18px}
-.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--line)}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 18px;border-top:1px solid var(--line)}
+.draft-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;
+  border:1px solid #e6c200;background:#fffbe6;border-radius:8px;font-size:13px;color:#6b5a00}
+.draft-bar .btn{padding:4px 10px;font-size:12px}
+.draft-bar.hidden{display:none}
+.draft-info{margin-right:auto;color:var(--mut);font-size:12px}
+.draft-info b{color:var(--acc)}
 fieldset{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;padding:12px}
 legend{font-size:13px;color:var(--mut);padding:0 6px}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
@@ -309,6 +315,11 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
       <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button>
     </div>
     <div class="modal-body">
+      <div id="draftBar" class="draft-bar hidden" data-key="">
+        <span id="draftText"></span>
+        <button type="button" class="btn" id="btnDraftRestore">Восстановить</button>
+        <button type="button" class="btn" id="btnDraftDrop">Удалить</button>
+      </div>
       <div class="grid4">
         <label>Категория<div class="field-pick"><input id="eCategory" autocomplete="off" placeholder="например: Датчики"><button type="button" class="f-drop" tabindex="-1" data-tip="Список категорий">▾</button><div class="f-menu hidden"></div></div></label>
         <label>Производитель<div class="field-pick"><input id="eManufacturer" autocomplete="off" placeholder="например: Термекс"><button type="button" class="f-drop" tabindex="-1" data-tip="Список производителей">▾</button><div class="f-menu hidden"></div></div></label>
@@ -343,6 +354,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
       <label>Комментарий<textarea id="eComment" rows="2" placeholder="Особенности применения, примечания…"></textarea></label>
     </div>
     <div class="modal-foot">
+      <span class="draft-info" id="draftInfo"></span>
       <button class="btn primary" id="btnSaveCard">Сохранить</button>
       <button class="btn" data-close>Отмена</button>
     </div>
@@ -757,7 +769,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v41 · длинные части маркировки переносятся внутри карточки · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v42 · черновик редактора хранится в браузере, пока лист модели не создан в таблице · разделители · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1301,6 +1313,135 @@ function openView(id){
 let editRows=[], tplGroups=[], tplKey='', tplWarn='';
 let editOrig='', editOrigMarking='', tplParsedOk=true;
 
+// ================= Буфер введённых значений (черновик редактора) =================
+// Пока листа-шаблона модели нет в книге, прочитать введённое из таблицы нельзя.
+// Поэтому редактор держит черновик в localStorage: он переживает перезагрузку
+// страницы и закрытие браузера, а снимается только когда карточка сохранена
+// И части реально легли на лист модели в Google.
+const LS_DRAFTS='mk_drafts_v1';
+let draftTimer=0, editorReady=false, draftSuspended=false;
+
+function draftsAll(){
+  try{ const o=JSON.parse(localStorage.getItem(LS_DRAFTS)||'{}'); return (o && typeof o==='object')?o:{}; }catch(e){ return {}; }
+}
+function draftsSave(map){ try{ localStorage.setItem(LS_DRAFTS, JSON.stringify(map)); }catch(e){} }
+function draftKeyNow(){
+  if (editId) return 'id:'+editId;
+  return 'new:'+(currentModelKey()||'');
+}
+function draftSnapshot(){
+  return {
+    ts: Date.now(),
+    id: editId||null,
+    tplKey: currentModelKey(),
+    category:$('#eCategory').value.trim(),
+    manufacturer:$('#eManufacturer').value.trim(),
+    model:$('#eModel').value.trim(),
+    code:$('#eCode').value.trim(),
+    project:$('#eProject').value.trim(),
+    status:$('#eStatus').value,
+    link:$('#eLink').value.trim(),
+    marking1c:$('#eMarking1c').value.trim(),
+    comment:$('#eComment').value.trim(),
+    rows: editRows.map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'',
+                            char:r.char||'', unit:r.unit||'', pos:(r.pos==null?null:r.pos)})),
+    scheme: draftScheme?JSON.parse(JSON.stringify(draftScheme)):null,
+    schemeText: draftSchemeText||''
+  };
+}
+function draftIsEmpty(d){
+  if (!d) return true;
+  const text=[d.category,d.manufacturer,d.model,d.code,d.project,d.link,d.marking1c,d.comment].join('');
+  return !String(text).trim() && !(d.rows||[]).some(r=>String(r.part||'').trim());
+}
+function draftTime(ts){
+  if (!ts) return '';
+  const d=new Date(ts), p=n=>String(n).padStart(2,'0');
+  return p(d.getDate())+'.'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function draftLabel(d){
+  if (!d) return '';
+  if (d.tplKey) return '«'+d.tplKey+'»';
+  if (d.id) return 'карточки '+d.id;
+  return 'новой маркировки';
+}
+function writeDraft(){
+  if (!editorReady || draftSuspended) return;
+  const key=draftKeyNow(), map=draftsAll(), d=draftSnapshot();
+  if (draftIsEmpty(d)) delete map[key]; else map[key]=d;
+  draftsSave(map);
+  renderDraftInfo();
+}
+function scheduleDraft(){
+  clearTimeout(draftTimer);
+  draftTimer=setTimeout(writeDraft, 400);
+}
+function dropDraft(key){
+  const map=draftsAll();
+  const k=key||draftKeyNow();
+  if (map[k]){ delete map[k]; draftsSave(map); }
+  renderDraftInfo();
+}
+function draftBarSet(text, key){
+  const bar=$('#draftBar'); if (!bar) return;
+  bar.dataset.key=key||'';
+  $('#draftText').textContent=text||'';
+  bar.classList.toggle('hidden', !text);
+  $('#btnDraftRestore').classList.toggle('hidden', !key);
+  $('#btnDraftDrop').classList.toggle('hidden', !key);
+}
+function renderDraftInfo(){
+  const el=$('#draftInfo'); if (!el) return;
+  if (!editorReady){ el.innerHTML=''; return; }
+  const d=draftsAll()[draftKeyNow()];
+  el.innerHTML = d ? 'черновик сохранён в браузере · '+draftTime(d.ts) : '';
+}
+// Восстановление черновика в редактор: значения, строки и схема как были.
+function restoreDraft(d){
+  if (!d) return false;
+  $('#eCategory').value=d.category||'';
+  $('#eManufacturer').value=d.manufacturer||'';
+  $('#eModel').value=d.model||'';
+  $('#eCode').value=d.code||'';
+  $('#eProject').value=d.project||'';
+  $('#eLink').value=d.link||'';
+  $('#eStatus').innerHTML=statusSelectHTML(d.status||'');
+  syncStatusDot();
+  $('#eMarking1c').value=d.marking1c||'';
+  $('#eComment').value=d.comment||'';
+  draftScheme=d.scheme?migrateScheme(d.scheme):null;
+  draftSchemeText=d.schemeText||'';
+  updateSchemeStatus();
+  fillEditDatalists();
+  tplKey=currentModelKey();
+  const rows=modelRowsFor(tplKey);
+  tplGroups=rows&&rows.length?groupModelRows(rows):[];
+  const src=(d.rows&&d.rows.length)?d.rows:[blankRow()];
+  editRows=src.map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'', char:r.char||'',
+                        unit:r.unit||'', pos:(r.pos==null?null:r.pos)}));
+  tplWarn='';
+  // восстановленные строки — уже рабочая правка: сохранение собирает маркировку из них
+  editOrig='__draft__'; editOrigMarking=''; tplParsedOk=true;
+  renderTemplate();
+  renderRows();
+  return true;
+}
+// При открытии редактора: свой черновик подставляется сам, чужой — предлагается.
+function applyDraftOnOpen(){
+  const map=draftsAll(), key=draftKeyNow();
+  if (map[key]){
+    const d=map[key];
+    if (restoreDraft(d)){
+      draftBarSet('Черновик от '+draftTime(d.ts)+' восстановлен — значения вводить заново не нужно.', '');
+    }
+    return;
+  }
+  const list=Object.keys(map).map(k=>({key:k,d:map[k]})).sort((a,b)=>(b.d.ts||0)-(a.d.ts||0));
+  if (!list.length){ draftBarSet('', ''); return; }
+  const top=list[0];
+  draftBarSet('В буфере есть черновик '+draftLabel(top.d)+' от '+draftTime(top.d.ts)+'.', top.key);
+}
+
 function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
   $('#dlManufacturers').innerHTML=opts(cards.map(c=>c.manufacturer));
@@ -1525,6 +1666,7 @@ function renderRows(){
   // строка DOM помнит свой объект данных: после перетаскивания порядок берётся из DOM
   [...wrap.querySelectorAll('.part-row')].forEach((el,i)=>{ el._row=editRows[i]; });
   refreshPreview();
+  scheduleDraft();
 }
 function rowsWithPart(){ return editRows.filter(r=>(r.part||'').trim()); }
 function assembleRows(){
@@ -1903,10 +2045,10 @@ function templateJobs(rows, key){
 }
 async function pushTemplateChanges(rows, key){
   const jobs=templateJobs(rows, key);
-  if (!jobs.length) return;
+  if (!jobs.length) return true;
   if (!modelsUrl){
     setBanner('Развёрнута старая версия скрипта: части в лист «'+key+'» не сохранятся. Обновите Код.gs и разверните новую версию.','warn');
-    return;
+    return false;
   }
   for (const job of jobs){
     try{ await postToSheet(job); }catch(e){}
@@ -1915,9 +2057,10 @@ async function pushTemplateChanges(rows, key){
   for (let attempt=0; attempt<4; attempt++){
     await new Promise(res=>setTimeout(res, 2000));
     await loadCards();
-    if (!templateJobs(rows, key).length) return;
+    if (!templateJobs(rows, key).length) return true;
   }
   setBanner('Части не записались в лист «'+key+'»: в таблице их нет. Проверьте, что развёрнута новая версия скрипта Код.gs.','warn');
+  return false;
 }
 
 function openEdit(src, mode){
@@ -1948,6 +2091,10 @@ function openEdit(src, mode){
   tplParsedOk=!(editOrigMarking && tplGroups.length && !parseByGroups(editOrigMarking, tplGroups));
   updateSchemeStatus();
   $('#editModal').classList.remove('hidden');
+  editorReady=true;
+  draftSuspended=false;
+  applyDraftOnOpen();
+  renderDraftInfo();
 }
 function collectCard(){
   // если маркировка не разложилась по шаблону и её не трогали — сохраняем как есть,
@@ -1979,10 +2126,20 @@ function collectCard(){
 async function saveCard(){
   const card=collectCard(); if(!card) return;
   const rows=JSON.parse(JSON.stringify(editRows));
-  const key=tplKey;
+  const key=tplKey, draftKey=draftKeyNow();
   await persistCard(card, editId);
+  // черновик снимаем только когда части реально легли на лист модели:
+  // пока лист не создан, значения остаются в буфере браузера
+  draftSuspended=false;
+  writeDraft();
+  draftSuspended=true;
   $('#editModal').classList.add('hidden');
-  pushTemplateChanges(rows, key);
+  pushTemplateChanges(rows, key).then(ok=>{
+    if (ok){ dropDraft(draftKey); return; }
+    draftSuspended=false;
+    setBanner('Значения сохранены в буфере браузера: лист «'+key+'» ещё не создан в Google. '
+      +'Откройте карточку позже — введённое подставится само, заново набирать не нужно.','warn');
+  });
 }
 
 // ================= Редактор схемы =================
@@ -2444,6 +2601,22 @@ function init(){
   });
 
   on('#btnAddPart','click',addRow);
+  // Буфер введённых значений: пишем на каждый ввод и при уходе со страницы,
+  // чтобы значения пережили перезагрузку и закрытие браузера.
+  on('#editModal','input',scheduleDraft);
+  on('#editModal','change',scheduleDraft);
+  on('#btnDraftRestore','click',()=>{
+    const key=$('#draftBar').dataset.key, map=draftsAll();
+    if (key && map[key] && restoreDraft(map[key])){
+      draftBarSet('Черновик восстановлен — значения подставлены в редактор.', '');
+    }
+  });
+  on('#btnDraftDrop','click',()=>{
+    dropDraft($('#draftBar').dataset.key||draftKeyNow());
+    draftBarSet('Черновик удалён из буфера.', '');
+  });
+  window.addEventListener('beforeunload', writeDraft);
+  document.addEventListener('visibilitychange', ()=>{ if (document.hidden) writeDraft(); });
   on('#tplRows','input',rowInput);
   on('#tplRows','change',rowInput);
   on('#tplRows','click',rowClick);
@@ -2506,7 +2679,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v41</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v42</footer>
 </body>
 </html>
 
