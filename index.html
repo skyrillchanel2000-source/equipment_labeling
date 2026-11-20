@@ -739,22 +739,21 @@ function cardParts(c){
   const rest=pre.vals.filter(Boolean);
   return [{part:pre.part, sep:pre.sep, desc:'Нет в шаблоне модели', char:'', unit:''}].concat(rest);
 }
-// Описание маркировки для заказчика: шапка с маркировкой и кодом, дальше таблица
-// частей с описаниями и характеристиками. Колонки разделены табуляцией —
-// при вставке в Word или Excel это становится таблицей.
+// Описание для заказчика: первой строкой маркировка, дальше блок «Характеристика:»
+// и по строке на часть — «часть - описание (характеристика)».
 function descText(c){
   const parts=cardParts(c)||[];
-  const lines=[];
-  lines.push('Маркировка: '+(c.marking||''));
-  if (c.marking1c && normText(c.marking1c)!==normText(c.marking)) lines.push('Маркировка 1С: '+c.marking1c);
-  if (c.id) lines.push('Код 1С: '+c.id);
-  const mm=[c.manufacturer,c.model].filter(Boolean).join(' / ');
-  if (mm) lines.push('Производитель / модель: '+mm);
-  if (c.category) lines.push('Категория: '+c.category);
+  const lines=[c.marking||''];
   if (parts.length){
-    lines.push('');
-    lines.push(['№','Часть','Описание','Характеристика'].join('\t'));
-    parts.forEach((p,i)=>lines.push([i+1,p.part||'',p.desc||'',charUnit(p)].join('\t')));
+    lines.push('Характеристика:');
+    parts.forEach(p=>{
+      let line=String(p.part||'').trim();
+      const desc=String(p.desc||'').trim();
+      const ch=charUnit(p);
+      if (desc) line+=' - '+desc;
+      if (ch) line+=' ('+ch+')';
+      lines.push(line);
+    });
   }
   return lines.join('\r\n');
 }
@@ -790,7 +789,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v44 · копирование описания с характеристиками в карточке · черновик редактора в браузере · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v45 · копирование описания: маркировка + «Характеристика:» построчно · черновик редактора в браузере · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1279,8 +1278,8 @@ function openView(id){
     ? `<table class="parts-table"><thead><tr><th>№</th><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
         <tbody>${cparts.map((p,i)=>`<tr data-pidx="${i}"><td>${i+1}</td><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
         <div class="copy-actions">
-          <button class="btn" id="btnCopyDesc" data-tip="Маркировка, код 1С и таблица частей с описаниями и характеристиками">Скопировать описание</button>
-          <span class="hint">частей: ${cparts.length} · вставляется в Word или Excel таблицей</span>
+          <button class="btn" id="btnCopyDesc" data-tip="Маркировка, затем «Характеристика:» и по строке на часть — часть, описание и характеристика">Скопировать описание</button>
+          <span class="hint">частей: ${cparts.length} · по строке на часть: часть - описание (характеристика)</span>
         </div>
         <div class="hint">Описания частей — с листа-шаблона «${esc(key)}»</div>`
     : `<div class="hint">Маркировка не разобрана по шаблону. ${noPartsHint}</div>`;
@@ -2731,7 +2730,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v44</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v45</footer>
 </body>
 </html>
 
