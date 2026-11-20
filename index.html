@@ -160,6 +160,8 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 .parts-table{width:100%;border-collapse:collapse;margin:10px 0}
 .parts-table th,.parts-table td{border:1px solid var(--line);padding:6px 8px;font-size:13px;text-align:left}
 .parts-table th{background:#f6f8fb}
+.copy-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.copy-actions .hint{margin:0}
 .view-meta{font-size:13px;color:var(--mut);margin-bottom:10px}
 .view-marking{font-size:22px;font-weight:600;line-height:2.1}
 .view-comment{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:14px;margin:10px 0}
@@ -737,6 +739,25 @@ function cardParts(c){
   const rest=pre.vals.filter(Boolean);
   return [{part:pre.part, sep:pre.sep, desc:'Нет в шаблоне модели', char:'', unit:''}].concat(rest);
 }
+// Описание маркировки для заказчика: шапка с маркировкой и кодом, дальше таблица
+// частей с описаниями и характеристиками. Колонки разделены табуляцией —
+// при вставке в Word или Excel это становится таблицей.
+function descText(c){
+  const parts=cardParts(c)||[];
+  const lines=[];
+  lines.push('Маркировка: '+(c.marking||''));
+  if (c.marking1c && normText(c.marking1c)!==normText(c.marking)) lines.push('Маркировка 1С: '+c.marking1c);
+  if (c.id) lines.push('Код 1С: '+c.id);
+  const mm=[c.manufacturer,c.model].filter(Boolean).join(' / ');
+  if (mm) lines.push('Производитель / модель: '+mm);
+  if (c.category) lines.push('Категория: '+c.category);
+  if (parts.length){
+    lines.push('');
+    lines.push(['№','Часть','Описание','Характеристика'].join('\t'));
+    parts.forEach((p,i)=>lines.push([i+1,p.part||'',p.desc||'',charUnit(p)].join('\t')));
+  }
+  return lines.join('\r\n');
+}
 
 function migrateScheme(s){
   if (!s || typeof s!=='object') return null;
@@ -769,7 +790,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v43 · черновик редактора в браузере; лист модели считается созданным, когда позиции уже в таблице · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v44 · копирование описания с характеристиками в карточке · черновик редактора в браузере · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1257,6 +1278,10 @@ function openView(id){
   const partsHTML = cparts
     ? `<table class="parts-table"><thead><tr><th>№</th><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
         <tbody>${cparts.map((p,i)=>`<tr data-pidx="${i}"><td>${i+1}</td><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
+        <div class="copy-actions">
+          <button class="btn" id="btnCopyDesc" data-tip="Маркировка, код 1С и таблица частей с описаниями и характеристиками">Скопировать описание</button>
+          <span class="hint">частей: ${cparts.length} · вставляется в Word или Excel таблицей</span>
+        </div>
         <div class="hint">Описания частей — с листа-шаблона «${esc(key)}»</div>`
     : `<div class="hint">Маркировка не разобрана по шаблону. ${noPartsHint}</div>`;
   const mk1c=normText(c.marking1c), mkOwn=normText(c.marking);
@@ -1298,6 +1323,15 @@ function openView(id){
     return copyText(txt).then(()=>flashHint('Маркировка 1С скопирована ✓: '+txt)).catch(()=>alert(txt));
   };
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
+  const dc=$('#btnCopyDesc');
+  if (dc) dc.onclick=()=>{
+    const txt=descText(c);
+    copyText(txt)
+      .then(()=>{ flashHint('Описание скопировано ✓ ('+(cparts||[]).length+' частей)');
+                  dc.textContent='Скопировано!';
+                  setTimeout(()=>{ dc.textContent='Скопировать описание'; },1600); })
+      .catch(()=>alert(txt));
+  };
   const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>copyText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
   $$('#viewBody [data-pidx]').forEach(el=>{
@@ -2697,7 +2731,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v43</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v44</footer>
 </body>
 </html>
 
