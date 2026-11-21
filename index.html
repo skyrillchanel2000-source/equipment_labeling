@@ -144,6 +144,12 @@ body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!i
   border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;font-size:13px}
 .dup-note.hidden{display:none}
 .dup-note .btn{padding:4px 10px;font-size:12px}
+.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin:6px 0 10px}
+.chk input{width:auto}
+.card-extra{font-size:13px;color:var(--mut);overflow-wrap:anywhere}
+.card-extra b{color:var(--ink);font-weight:600}
+.add-pick{max-height:320px}
+.add-pick .p-opt b{font-weight:600}
 .scheme-row{display:flex;align-items:center;gap:10px;margin:12px 0}
 .scheme-types{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .scheme-types label{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin:0}
@@ -281,6 +287,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <nav class="tabs">
   <button class="tab active" data-tab="main">Маркировки <span class="cnt" id="mainCnt">0</span></button>
   <button class="tab" data-tab="trash">Удалённые <span class="cnt" id="trashCnt">0</span></button>
+  <button class="tab" data-tab="extra">Дополнительная маркировка <span class="cnt" id="extraCnt">0</span></button>
 </nav>
 
 <section class="filters">
@@ -359,6 +366,33 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
         <div id="dupNote" class="dup-note hidden"></div>
         <div class="hint">Скобки вокруг значения части — кнопки «(» и «)» в строке; Shift+клик убирает одну скобку, повторный клик добавляет вторую.</div>
       </fieldset>
+      <fieldset id="addFieldset">
+        <legend>Дополнительная маркировка</legend>
+        <div class="parts-toolbar">
+          <span class="hint" id="addStatus">не задана</span>
+          <a class="linkbtn hidden" id="addSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
+          <button type="button" class="icon-btn" id="btnAddChoose" data-icon="list" data-tip="Выбрать ранее сохранённую дополнительную маркировку"></button>
+          <button type="button" class="icon-btn" id="btnAddClear" data-icon="x" data-tip="Убрать дополнительную маркировку с карточки (запись в таблице останется)"></button>
+          <div id="addMarkPick" class="part-pick add-pick hidden"></div>
+        </div>
+        <div class="grid4">
+          <label>Категория<input id="eAddCategory" list="dlCategories" autocomplete="off" placeholder="например: Электродвигатель"></label>
+          <label>Производитель<input id="eAddManufacturer" list="dlManufacturers" autocomplete="off" placeholder="например: Уралэлектро"></label>
+          <label>Модель<input id="eAddModel" list="dlModels" autocomplete="off" placeholder="например: АИР80В4"></label>
+          <label>Код 1С<input id="eAddCode" placeholder="код 1С доп. маркировки"></label>
+        </div>
+        <label>Текущая маркировка из 1С (доп.)<input id="eAddMarking1c" autocomplete="off" placeholder="как записана в 1С"></label>
+        <div class="parts-toolbar">
+          <button type="button" class="icon-btn" id="btnAddPartAdd" data-icon="plus" data-tip="Добавить часть дополнительной маркировки"></button>
+          <button type="button" class="icon-btn" id="btnAddExistingAdd" data-icon="list" data-tip="Добавить имеющуюся часть из листа доп. маркировки"></button>
+          <div id="addPick" class="part-pick hidden"></div>
+        </div>
+        <div id="addRows"></div>
+        <div class="marking-preview">Маркировка: <span id="aPreview"></span></div>
+        <label class="chk"><input type="checkbox" id="eAddToName"> Добавить к общему наименованию через «, »</label>
+        <div class="hint" id="addTotal"></div>
+        <div class="hint">Доп. маркировка хранится отдельной записью на листе «Дополнительная маркировка» и редактируется ещё и на одноимённой вкладке. Проект и статус берутся из карточки.</div>
+      </fieldset>
       <div class="scheme-row">
         <button class="icon-btn" id="btnOpenScheme" data-icon="cpu" data-tip="Создать / изменить схему подключения"></button>
         <span>Схема подключения: <b id="schemeStatus">не задана</b></span>
@@ -372,6 +406,48 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
     <div class="modal-foot">
       <span class="draft-info" id="draftInfo"></span>
       <button class="btn primary" id="btnSaveCard">Сохранить</button>
+      <button class="btn" data-close>Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Отдельное редактирование дополнительной маркировки -->
+<div class="modal hidden" id="extraModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="extraTitle">Дополнительная маркировка</h3>
+      <button class="icon-btn" data-close data-icon="x" data-tip="Закрыть"></button>
+    </div>
+    <div class="modal-body">
+      <div class="grid4">
+        <label>Категория<input id="xCategory" list="dlCategories" autocomplete="off" placeholder="например: Электродвигатель"></label>
+        <label>Производитель<input id="xManufacturer" list="dlManufacturers" autocomplete="off" placeholder="например: Уралэлектро"></label>
+        <label>Модель<input id="xModel" list="dlModels" autocomplete="off" placeholder="например: АИР80В4"></label>
+        <label>Код 1С<input id="xCode" placeholder="код 1С"></label>
+      </div>
+      <div class="grid2">
+        <label>Проект<input id="xProject" list="dlProjects" autocomplete="off" placeholder="проект карточки"></label>
+        <label>Статус<span class="st-wrap"><span id="xStatusDot" class="st-dot"></span><select id="xStatus"></select></span></label>
+      </div>
+      <label>Ссылка<input id="xLink" type="text" autocomplete="off" placeholder="https://… — паспорт, описание"></label>
+      <label>Текущая маркировка из 1С<input id="xMarking1c" autocomplete="off" placeholder="как записана в 1С"></label>
+      <fieldset>
+        <legend>Части маркировки</legend>
+        <div class="parts-toolbar">
+          <span class="hint" id="xTplStatus">—</span>
+          <a class="linkbtn hidden" id="xSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
+          <button type="button" class="icon-btn" id="btnAddPartX" data-icon="plus" data-tip="Добавить часть маркировки"></button>
+          <button type="button" class="icon-btn" id="btnAddExistingX" data-icon="list" data-tip="Добавить имеющуюся часть"></button>
+          <div id="xPick" class="part-pick hidden"></div>
+        </div>
+        <div id="extraRows"></div>
+        <div class="marking-preview">Маркировка: <span id="xPreview"></span></div>
+        <div class="hint">Части и их описания живут на листе-шаблоне «Категория / Производитель / Модель» и создаются при сохранении.</div>
+      </fieldset>
+      <label>Комментарий<textarea id="xComment" rows="2" placeholder="Особенности применения, примечания…"></textarea></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btnSaveExtra">Сохранить</button>
       <button class="btn" data-close>Отмена</button>
     </div>
   </div>
@@ -452,7 +528,7 @@ setTimeout(function(){
 // ======================================================================
 // ССЫЛКА НА GOOGLE-ТАБЛИЦУ (Apps Script /exec). Меняется только здесь.
 // ======================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbyXoZd-NzRw4mbFjAy7nfAEA_KhqGrqT57JNjH6Zcn2y_S20wpnfYV6icAhV4zAvu8E/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxmB4kEl4hsOkqPHdVXzFTxH9rAteu3vCqn3FaDtRrlQBX-AhmEmUBeOwbtS2u0K-mh/exec';
 
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -574,8 +650,8 @@ const unitChoices = sel => {
 };
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1';
-let cards=[], deletedCards=[], models={}, modelGids={}, modelsUrl='';
+const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1', LS_EXTRAS='mk_extras_v1';
+let cards=[], deletedCards=[], extras=[], models={}, modelGids={}, modelsUrl='';
 let pendingOps=[];
 try{ pendingOps=JSON.parse(localStorage.getItem(LS_OPS)||'[]'); }catch(e){ pendingOps=[]; }
 if (!Array.isArray(pendingOps)) pendingOps=[];
@@ -584,6 +660,7 @@ if (!['date-desc','date-asc','category','manufacturer','model','marking'].includ
 let filters={q:'',cat:'',man:''};
 try{ filters=Object.assign({q:'',cat:'',man:''}, JSON.parse(localStorage.getItem(LS_FILTERS)||'{}')); }catch(e){}
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
+let addExtraId='', xEditId=null;
 let sDraft=null, currentViewId=null, currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка','коробка с кабелем без клемм','только кабель'];
 // Статус карточки — огонёк в правом верхнем углу. Пустое значение = статус не задан.
@@ -631,6 +708,39 @@ function fixCard(c){
   return x;
 }
 
+// ================= Дополнительная маркировка =================
+// Отдельная запись на листе «Дополнительная маркировка»: те же поля, что у карточки.
+// Основная карточка ссылается на неё колонкой «Доп. маркировка».
+function fixExtra(c){
+  const x=fixCard(c);
+  x.kind='extra';
+  delete x.extraId; delete x.extraToName;
+  return x;
+}
+function extraOf(id){
+  if (!id) return null;
+  return extras.find(x=>String(x.id)===String(id))||null;
+}
+function fullMarking(c){
+  if (!c) return '';
+  const ex=extraOf(c.extraId), own=c.marking||'';
+  if (!ex || !c.extraToName || !ex.marking) return own;
+  return own ? own+', '+ex.marking : ex.marking;
+}
+// Имя листа доп. маркировки: модель важнее производителя, категория — запасной вариант.
+function extraKeyOf(c){
+  const cat=normText(c&&c.category), man=normText(c&&c.manufacturer), mod=normText(c&&c.model);
+  let k='';
+  if (mod && man) k=man+' '+mod;
+  else if (mod) k=(cat?cat+' ':'')+mod;
+  else if (man) k=(cat?cat+' ':'')+man;
+  else k=cat;
+  return k.replace(/\s+/g,' ').trim();
+}
+function sheetKeyOf(c){
+  return (c && c.kind==='extra') ? extraKeyOf(c) : modelKeyOf(c);
+}
+
 // ================= Листы-шаблоны моделей =================
 // Шаблон модели — лист «[Производитель] [Модель]»:
 // A Позиция | B Часть маркировки | C Разделитель |
@@ -643,7 +753,7 @@ function modelKeyOf(c){
     .replace(/\s+/g,' ').trim();
 }
 function modelRowsOf(c){
-  const key=modelKeyOf(c);
+  const key=sheetKeyOf(c);
   if (!key) return null;
   if (models[key]) return models[key];
   const low=key.toLowerCase();
@@ -760,17 +870,24 @@ function cardParts(c){
 // и по строке на часть — «часть - описание (характеристика)».
 function descText(c){
   const parts=cardParts(c)||[];
-  const lines=[c.marking||''];
+  const lines=[fullMarking(c)];
+  const pushPart=p=>{
+    let line=String(p.part||'').trim();
+    const desc=String(p.desc||'').trim();
+    const ch=charUnit(p);
+    if (desc) line+=' - '+desc;
+    if (ch) line+=' ('+ch+')';
+    lines.push(line);
+  };
   if (parts.length){
     lines.push('Характеристика:');
-    parts.forEach(p=>{
-      let line=String(p.part||'').trim();
-      const desc=String(p.desc||'').trim();
-      const ch=charUnit(p);
-      if (desc) line+=' - '+desc;
-      if (ch) line+=' ('+ch+')';
-      lines.push(line);
-    });
+    parts.forEach(pushPart);
+  }
+  const ex=extraOf(c.extraId);
+  const xparts=ex?(cardParts(ex)||[]):[];
+  if (xparts.length){
+    lines.push('Дополнительная маркировка: '+ex.marking);
+    xparts.forEach(pushPart);
   }
   return lines.join('\r\n');
 }
@@ -800,13 +917,14 @@ function setBanner(text, cls, tip){
   if (tip) b.title=tip; else b.removeAttribute('title');
 }
 function updateCounts(){
-  const m=$('#mainCnt'), t=$('#trashCnt');
+  const m=$('#mainCnt'), t=$('#trashCnt'), e=$('#extraCnt');
   if (m) m.textContent=cards.length;
   if (t) t.textContent=deletedCards.length;
+  if (e) e.textContent=extras.length;
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v47 · проверка дубля маркировки · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v48 · дополнительная маркировка · проверка дубля · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -816,7 +934,8 @@ function saveOps(){
 }
 function addOp(op, id, card){
   id=String(id);
-  pendingOps=pendingOps.filter(o=>String(o.id)!==id);
+  // доп. маркировка может иметь тот же код 1С, что и карточка — операции не вытесняют друг друга
+  pendingOps=pendingOps.filter(o=>String(o.id)!==id || (o.op==='saveExtra')!==(op==='saveExtra'));
   pendingOps.push({op, id, ts:Date.now(), card:card?JSON.parse(JSON.stringify(card)):null});
   const cut=Date.now()-6*3600*1000;
   pendingOps=pendingOps.filter(o=>o.ts>=cut);
@@ -844,7 +963,8 @@ function linkHost(u){
 }
 const CARD_FIELDS=[['marking','маркировка'],['marking1c','маркировка 1С'],['category','категория'],
   ['manufacturer','производитель'],['model','модель'],['project','проект'],['status','статус'],
-  ['link','ссылка'],['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель']];
+  ['link','ссылка'],['comment','комментарий'],['schemeText','текст схемы'],['sep','разделитель'],
+  ['extraId','доп. маркировка'],['extraToName','доп. к наименованию']];
 // Разделитель карточки — производное от шаблона модели, в таблицу он пишется как «(пробел)»/«(нет)».
 // Его расхождение не должно держать операцию в очереди навсегда, поэтому в подтверждение он не входит.
 const CONFIRM_FIELDS=CARD_FIELDS.filter(([k])=>k!=='sep');
@@ -856,6 +976,7 @@ function confirmFieldsFor(srv){
 }
 function fieldVal(c,k){
   if (!c) return '';
+  if (k==='extraToName') return c[k]?'да':'';
   return k==='sep' ? normSep(c.sep) : normText(c[k]);
 }
 function cardSig(c, fields){
@@ -871,10 +992,11 @@ function cardDiff(local, srv){
   if (!srv) return null;
   return confirmFieldsFor(srv).filter(([k])=>fieldVal(local,k)!==fieldVal(srv,k)).map(([,t])=>t);
 }
-function applyPending(serverMain, serverTrash){
-  const main=new Map(), trash=new Map();
+function applyPending(serverMain, serverTrash, serverExtras){
+  const main=new Map(), trash=new Map(), extra=new Map();
   serverMain.forEach(c=>main.set(String(c.id), c));
   serverTrash.forEach(c=>trash.set(String(c.id), c));
+  (serverExtras||[]).forEach(c=>extra.set(String(c.id), c));
   const keep=[];
   pendingOps.forEach(o=>{
     const id=String(o.id);
@@ -884,6 +1006,10 @@ function applyPending(serverMain, serverTrash){
       const srv=srvMain;
       if (srv && sameCard(o.card, srv)) done=true;
       else if (o.card) main.set(id, o.card);
+    } else if (o.op==='saveExtra'){
+      const srv=extra.get(id);
+      if (srv && sameCard(o.card, srv)) done=true;
+      else if (o.card) extra.set(id, o.card);
     } else if (o.op==='delete'){
       if (!main.has(id) && trash.has(id)){ done=true; }
       else {
@@ -913,13 +1039,15 @@ function applyPending(serverMain, serverTrash){
   return {
     main:[...main.values()],
     trash:[...trash.values()],
+    extras:[...extra.values()],
     stale:staleOps.length,
     staleOps
   };
 }
 // Расшифровка неподтверждённой операции: что за действие и какая карточка
 function opAction(op){
-  return ({save:'правка', delete:'удаление', restore:'восстановление', purge:'удаление из корзины'})[op] || op;
+  return ({save:'правка', delete:'удаление', restore:'восстановление', purge:'удаление из корзины',
+           saveExtra:'правка доп. маркировки'})[op] || op;
 }
 function opWhat(o){
   const c=o.card;
@@ -972,9 +1100,13 @@ function hydrate(){
   try{
     cards=JSON.parse(localStorage.getItem(LS_CARDS)||'[]').map(fixCard);
     deletedCards=JSON.parse(localStorage.getItem(LS_TRASH)||'[]').map(fixCard);
+    extras=JSON.parse(localStorage.getItem(LS_EXTRAS)||'[]').map(fixExtra);
+    if (!Array.isArray(cards)) cards=[];
+    if (!Array.isArray(deletedCards)) deletedCards=[];
+    if (!Array.isArray(extras)) extras=[];
     const m=JSON.parse(localStorage.getItem(LS_MODELS)||'{}');
     if (m && typeof m==='object') models=m;
-  }catch(e){ cards=[]; deletedCards=[]; }
+  }catch(e){ cards=[]; deletedCards=[]; extras=[]; }
   refreshUI();
 }
 async function fetchJSON(url){
@@ -987,20 +1119,21 @@ async function loadCards(){
   try{
     const sep = API_URL.includes('?') ? '&' : '?';
     const bust = '&t=' + Date.now();
-    let raw=null, rawDel=null, msg='', cls='', tip='';
+    let raw=null, rawDel=null, rawExtras=null, msg='', cls='', tip='';
     try{
       let r=null;
       try{ r = await fetchJSON(API_URL+sep+'action=listAll'+bust); }catch(e){ r=null; }
       if (r && Array.isArray(r.main)){
         raw=r.main; rawDel=Array.isArray(r.trash)?r.trash:[];
+        rawExtras=Array.isArray(r.extras)?r.extras:null;
         if (r.models && typeof r.models==='object'){
           models=r.models;
           try{ localStorage.setItem(LS_MODELS, JSON.stringify(models)); }catch(e){}
         }
         if (r.gids && typeof r.gids==='object') modelGids=r.gids;
         if (r.url) modelsUrl=r.url;
-        if (!r.url || !r.gids){
-          msg='Развёрнута старая версия веб-приложения: новые части и правки шаблона не сохранятся. Разверните новую версию Код.gs.';
+        if (!r.url || !r.gids || !rawExtras){
+          msg='Развёрнута старая версия веб-приложения: новые части, правки шаблона и доп. маркировка не сохранятся. Разверните новую версию Код.gs.';
           cls='warn';
         }
       } else {
@@ -1015,11 +1148,15 @@ async function loadCards(){
       raw=null; rawDel=null;
     }
     if (raw){
-      const merged=applyPending(raw.map(fixCard), (rawDel||[]).map(fixCard));
+      // старая версия скрипта не отдаёт extras — тогда источником остаются локальные записи
+      const merged=applyPending(raw.map(fixCard), (rawDel||[]).map(fixCard),
+        (rawExtras||extras).map(fixExtra));
       cards=merged.main;
       deletedCards=merged.trash;
+      extras=merged.extras;
       localStorage.setItem(LS_CARDS, JSON.stringify(cards));
       localStorage.setItem(LS_TRASH, JSON.stringify(deletedCards));
+      localStorage.setItem(LS_EXTRAS, JSON.stringify(extras));
       if (merged.stale){
         const d=staleText(merged.staleOps);
         msg=d.text;
@@ -1086,9 +1223,33 @@ async function persistCard(card, oldId){
   refreshUI();
   queueOp({action:'save', card, oldId: from}).then(()=>setTimeout(loadCards, 600));
 }
+// Доп. маркировка — отдельная запись; сохраняется тем же механизмом и очередью.
+async function persistExtra(card, oldId){
+  const from=(oldId && String(oldId)!==String(card.id)) ? String(oldId) : '';
+  if (from){
+    extras=extras.filter(c=>String(c.id)!==from);
+    const before=pendingOps.length;
+    pendingOps=pendingOps.filter(o=>!(String(o.id)===from && o.op==='saveExtra'));
+    if (pendingOps.length!==before) saveOps();
+  }
+  const i=extras.findIndex(c=>String(c.id)===String(card.id));
+  if(i>=0) extras[i]=card; else extras.unshift(card);
+  addOp('saveExtra', card.id, card);
+  localStorage.setItem(LS_EXTRAS, JSON.stringify(extras));
+  refreshUI();
+  queueOp({action:'saveExtra', card, oldId: from}).then(()=>setTimeout(loadCards, 600));
+}
 
 // ================= Список карточек =================
 function markingHTML(card){
+  const base=markingBaseHTML(card);
+  const ex=extraOf(card&&card.extraId);
+  if (ex && card.extraToName && ex.marking && base!=='<i>—</i>'){
+    return base + ', <span class="part pc5" data-tip="Дополнительная маркировка">'+esc(ex.marking)+'</span>';
+  }
+  return base;
+}
+function markingBaseHTML(card){
   const parts=cardParts(card);
   if (!parts){
     return card.marking ? `<span class="part" data-tip="Шаблон модели не найден — описания частей недоступны">${esc(card.marking)}</span>` : '<i>—</i>';
@@ -1186,9 +1347,25 @@ function trashCardHTML(c){
       </div>
     </div>`;
 }
+function extraCardHTML(c){
+  const used=cards.filter(x=>String(x.extraId)===String(c.id)).length;
+  return `
+    <div class="card">
+      <div class="card-cat">Код 1С: ${esc(c.id)}${c.category?' · '+esc(c.category):''}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
+      <div class="card-marking">${markingHTML(c)}</div>
+      ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
+      ${c.link?`<div class="card-link">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(linkHost(linkURL(c.link)))}</a>`:esc(c.link)}</div>`:''}
+      ${used?`<div class="card-extra">В карточках: ${used}</div>`:''}
+      <div class="card-actions">
+        <button class="icon-btn" data-tip="Редактировать доп. маркировку" data-act="x-edit" data-id="${esc(c.id)}">${icon('edit')}</button>
+        ${statusDot(c.status)}
+      </div>
+    </div>`;
+}
 function renderCards(){
   const isTrash = currentTab==='trash';
-  const src = isTrash ? deletedCards : cards;
+  const isExtra = currentTab==='extra';
+  const src = isExtra ? extras : (isTrash ? deletedCards : cards);
   const q=filters.q.trim();
   const cat=filters.cat, man=filters.man;
   const list=sortCards(src.filter(c=>{
@@ -1196,23 +1373,32 @@ function renderCards(){
     if (man && c.manufacturer!==man) return false;
     if (q){
       const ps=cardParts(c)||[];
+      const ex=extraOf(c.extraId);
+      const xps=ex?(cardParts(ex)||[]):[];
       const hay=[c.id||'', c.marking||'', c.marking1c||'', c.model, c.category, c.manufacturer,
         c.project||'', c.status||'', c.link||'', c.comment,
-        ...ps.flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
+        ...ps.flatMap(p=>[p.part,p.desc,charUnit(p)]),
+        ...(ex?[ex.id,ex.marking,ex.marking1c,ex.category,ex.manufacturer,ex.model]:[]),
+        ...xps.flatMap(p=>[p.part,p.desc,charUnit(p)])].join(' ');
       if (!searchMatch(hay, q)) return false;
     }
     return true;
   }));
-  $('#emptyText').textContent = isTrash ? 'Корзина пуста.' : 'Пока нет ни одной маркировки.';
+  $('#emptyText').textContent = isExtra ? 'Дополнительных маркировок пока нет.'
+    : (isTrash ? 'Корзина пуста.' : 'Пока нет ни одной маркировки.');
   $('#btnAddEmpty').classList.toggle('hidden', isTrash);
+  $('#btnAddEmpty').textContent = isExtra ? 'Добавить дополнительную маркировку' : 'Добавить первую маркировку';
   $('#empty').classList.toggle('hidden', list.length>0);
   $('#cards').innerHTML=list.map(c=>{
+    if (isExtra) return extraCardHTML(c);
     if (isTrash) return trashCardHTML(c);
     const jc=schemeJumperCount(c.scheme);
+    const ex=extraOf(c.extraId);
     return `
     <div class="card">
       <div class="card-cat">${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''}</div>
       <div class="card-marking">${markingHTML(c)}</div>
+      ${ex && !c.extraToName ? `<div class="card-extra">Доп. маркировка: <b>${esc(ex.marking||'')}</b></div>` : ''}
       ${c.project?`<div class="card-proj">Проект: ${esc(c.project)}</div>`:''}
       ${c.link?`<div class="card-link">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(linkHost(linkURL(c.link)))}</a>`:esc(c.link)}</div>`:''}
       ${c.schemeType ? `<div class="card-scheme">${icon('cpu')} схема: ${SCHEME_NAMES[c.schemeType]||''} · соединений: ${schemeConnCount(c.scheme)}${jc?' · перемычек: '+jc:''}</div>` : ''}
@@ -1234,8 +1420,13 @@ function findCard(id){
 function cardAction(e){
   const b=e.target.closest('button[data-act]'); if(!b) return;
   const id=b.dataset.id;
-  const c=findCard(id); if(!c) return;
   const act=b.dataset.act;
+  if (act==='x-edit'){
+    const ex=extras.find(x=>String(x.id)===String(id));
+    if (ex) openExtra(ex,'edit');
+    return;
+  }
+  const c=findCard(id); if(!c) return;
   if(act==='view'){ openView(id); }
   else if(act==='clone'){ openEdit(c,'clone'); }
   else if(act==='edit'){ openEdit(c,'edit'); }
@@ -1286,6 +1477,7 @@ function openView(id){
   const inTrash = !cards.find(x=>String(x.id)===String(id));
   const jc=schemeJumperCount(c.scheme);
   const cparts=cardParts(c);
+  const ex=extraOf(c.extraId);
   const key=modelKeyOf(c), groups=templateGroups(c);
   // «лист не найден» и «лист есть, но маркировка не совпала» — разные причины, и лечатся по-разному
   const noPartsHint = !key ? 'Укажите производителя и модель — по ним ищется лист-шаблон.'
@@ -1300,7 +1492,7 @@ function openView(id){
         </div>
         <div class="hint">Описания частей — с листа-шаблона «${esc(key)}»</div>`
     : `<div class="hint">Маркировка не разобрана по шаблону. ${noPartsHint}</div>`;
-  const mk1c=normText(c.marking1c), mkOwn=normText(c.marking);
+  const mk1c=normText(c.marking1c), mkOwn=normText(fullMarking(c));
   const mkCls = !mk1c ? 'none' : (mk1c===mkOwn ? 'ok' : 'bad');
   const mkTip = !mk1c ? 'Маркировка 1С не заполнена'
     : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
@@ -1310,6 +1502,7 @@ function openView(id){
     ${c.link?`<div class="view-meta">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(c.link)}</a>`:esc(c.link)}</div>`:''}
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
+    ${ex?`<div class="view-meta">Доп. маркировка: <b>${esc(ex.marking||'')}</b> · ${esc(extraLabel(ex))} · код 1С: ${esc(ex.id)}${c.extraToName?' · в общем наименовании':''}</div>`:''}
     <div class="hint" id="copyHint">${COPY_HINT}</div>
     ${partsHTML}
     ${c.comment?`<div class="view-comment"><b>Комментарий:</b> ${esc(c.comment)}</div>`:''}
@@ -1327,7 +1520,7 @@ function openView(id){
     ${c.basedOn?`<div class="based">Создано на основе: ${esc(c.basedOn)}</div>`:''}`;
   $('#viewEdit').style.display  = inTrash ? 'none' : '';
   $('#viewClone').style.display = inTrash ? 'none' : '';
-  const full=c.marking||'';
+  const full=fullMarking(c);
   const vm=$('#viewMarking');
   if (vm) vm.onclick=()=>copyText(full).then(()=>flashHint('Скопировано ✓: '+full)).catch(()=>alert(full));
   const vc=$('#viewCode');
@@ -1360,7 +1553,28 @@ function openView(id){
 // ================= Создание / редактирование =================
 // Маркировка собирается из листа-шаблона модели: одна строка-позиция —
 // один выпадающий список, варианты берутся с листа.
-let editRows=[], tplGroups=[], tplKey='', tplWarn='';
+// Редактор частей один и тот же в трёх местах: основная маркировка, блок
+// «Дополнительная маркировка» в карточке и отдельное окно доп. маркировки.
+// Активный набор — P; функции редактора работают с ним.
+function partsCtx(o){ return Object.assign({rows:[],groups:[],key:'',warn:'',pickList:[]}, o); }
+const PCTX={
+  main:  partsCtx({box:'#tplRows',   preview:'#ePreview', status:'#tplStatus',    link:'#tplSheetLink', pick:'#partPick'}),
+  add:   partsCtx({box:'#addRows',   preview:'#aPreview', status:'#addStatus',    link:'#addSheetLink', pick:'#addPick'}),
+  extra: partsCtx({box:'#extraRows', preview:'#xPreview', status:'#xTplStatus',   link:'#xSheetLink',   pick:'#xPick'})
+};
+let P=PCTX.main;
+function useParts(name){ P=PCTX[name]; return P; }
+function partsCtxOf(el){
+  const box=el && el.closest ? el.closest('#addRows, #extraRows, #tplRows') : null;
+  if (box && box.id==='addRows') return useParts('add');
+  if (box && box.id==='extraRows') return useParts('extra');
+  return useParts('main');
+}
+Object.defineProperties(window, {
+  editRows:  {get:()=>P.rows,   set:v=>{P.rows=v;}},
+  tplGroups: {get:()=>P.groups, set:v=>{P.groups=v;}},
+  tplKey:    {get:()=>P.key,    set:v=>{P.key=v;}}
+});
 let editOrig='', editOrigMarking='', tplParsedOk=true;
 
 // ================= Буфер введённых значений (черновик редактора) =================
@@ -1379,6 +1593,22 @@ function draftKeyNow(){
   if (editId) return 'id:'+editId;
   return 'new:'+(currentModelKey()||'');
 }
+function snapshotRows(rows){
+  return (rows||[]).map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'',
+                             char:r.char||'', unit:r.unit||'', pos:(r.pos==null?null:r.pos)}));
+}
+function addSnapshot(){
+  return {
+    id: addExtraId||null,
+    category:$('#eAddCategory').value.trim(),
+    manufacturer:$('#eAddManufacturer').value.trim(),
+    model:$('#eAddModel').value.trim(),
+    code:$('#eAddCode').value.trim(),
+    marking1c:$('#eAddMarking1c').value.trim(),
+    toName: $('#eAddToName').checked,
+    rows: snapshotRows(PCTX.add.rows)
+  };
+}
 function draftSnapshot(){
   return {
     ts: Date.now(),
@@ -1393,16 +1623,20 @@ function draftSnapshot(){
     link:$('#eLink').value.trim(),
     marking1c:$('#eMarking1c').value.trim(),
     comment:$('#eComment').value.trim(),
-    rows: editRows.map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'',
-                            char:r.char||'', unit:r.unit||'', pos:(r.pos==null?null:r.pos)})),
+    rows: snapshotRows(PCTX.main.rows),
+    add: addSnapshot(),
     scheme: draftScheme?JSON.parse(JSON.stringify(draftScheme)):null,
     schemeText: draftSchemeText||''
   };
 }
 function draftIsEmpty(d){
   if (!d) return true;
-  const text=[d.category,d.manufacturer,d.model,d.code,d.project,d.link,d.marking1c,d.comment].join('');
-  return !String(text).trim() && !(d.rows||[]).some(r=>String(r.part||'').trim());
+  const a=d.add||{};
+  const text=[d.category,d.manufacturer,d.model,d.code,d.project,d.link,d.marking1c,d.comment,
+    a.category,a.manufacturer,a.model,a.code,a.marking1c].join('');
+  return !String(text).trim()
+    && !(d.rows||[]).some(r=>String(r.part||'').trim())
+    && !(a.rows||[]).some(r=>String(r.part||'').trim());
 }
 function draftTime(ts){
   if (!ts) return '';
@@ -1449,6 +1683,7 @@ function renderDraftInfo(){
 // Восстановление черновика в редактор: значения, строки и схема как были.
 function restoreDraft(d){
   if (!d) return false;
+  useParts('main');
   $('#eCategory').value=d.category||'';
   $('#eManufacturer').value=d.manufacturer||'';
   $('#eModel').value=d.model||'';
@@ -1469,12 +1704,213 @@ function restoreDraft(d){
   const src=(d.rows&&d.rows.length)?d.rows:[blankRow()];
   editRows=src.map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'', char:r.char||'',
                         unit:r.unit||'', pos:(r.pos==null?null:r.pos)}));
-  tplWarn='';
+  P.warn='';
   // восстановленные строки — уже рабочая правка: сохранение собирает маркировку из них
   editOrig='__draft__'; editOrigMarking=''; tplParsedOk=true;
   renderTemplate();
   renderRows();
+  restoreAdd(d.add);
   return true;
+}
+// Блок доп. маркировки: значения, строки и ссылка на запись из черновика.
+function restoreAdd(a){
+  a=a||{};
+  addExtraId=a.id||'';
+  useParts('add');
+  $('#eAddCategory').value=a.category||'';
+  $('#eAddManufacturer').value=a.manufacturer||'';
+  $('#eAddModel').value=a.model||'';
+  $('#eAddCode').value=a.code||'';
+  $('#eAddMarking1c').value=a.marking1c||'';
+  $('#eAddToName').checked=!!a.toName;
+  tplKey=extraKeyOf({category:a.category||'', manufacturer:a.manufacturer||'', model:a.model||''});
+  const rows=modelRowsFor(tplKey);
+  tplGroups=rows&&rows.length?groupModelRows(rows):[];
+  const src=(a.rows&&a.rows.length)?a.rows:[blankRow()];
+  editRows=src.map(r=>({part:r.part||'', sep:r.sep||'', desc:r.desc||'', char:r.char||'',
+                        unit:r.unit||'', pos:(r.pos==null?null:r.pos)}));
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+}
+// Подстановка связанной доп. маркировки в блок карточки (или пустой блок).
+function fillAddBlock(id, toName){
+  const ex=id?extraOf(id):null;
+  // связь сохраняем, даже если запись ещё не пришла с сервера: иначе правка карточки
+  // молча отвязала бы доп. маркировку
+  addExtraId=id?String(id):'';
+  useParts('add');
+  $('#eAddCategory').value=ex?ex.category||'':'';
+  $('#eAddManufacturer').value=ex?ex.manufacturer||'':'';
+  $('#eAddModel').value=ex?ex.model||'':'';
+  $('#eAddCode').value=ex?String(ex.id||''):'';
+  $('#eAddMarking1c').value=ex?ex.marking1c||'':'';
+  $('#eAddToName').checked=!!(ex && toName);
+  tplKey=ex?extraKeyOf(ex):'';
+  editRows=ex?rowsFromTemplate(tplKey, ex.marking||''):[blankRow()];
+  if (ex) normalizeTail();
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+  refreshAddTotal();
+}
+// Снять доп. маркировку с карточки: запись на листе остаётся и доступна для выбора.
+function clearAddBlock(){
+  addExtraId='';
+  useParts('add');
+  ['#eAddCategory','#eAddManufacturer','#eAddModel','#eAddCode','#eAddMarking1c'].forEach(id=>{
+    const el=$(id); if (el) el.value='';
+  });
+  const cb=$('#eAddToName'); if (cb) cb.checked=false;
+  tplKey='';
+  tplGroups=[];
+  editRows=[blankRow()];
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+  refreshAddTotal();
+}
+// ================= Доп. маркировка: поля, сохранение, отдельное окно =================
+function extraFieldsOf(p){
+  const v=id=>{ const el=$(id); return el?el.value.trim():''; };
+  return {
+    category:v(p+'Category'), manufacturer:v(p+'Manufacturer'), model:v(p+'Model'),
+    code:v(p+'Code'), marking1c:v(p+'Marking1c'),
+    project:v(p+'Project'), status:v(p+'Status'), link:v(p+'Link'), comment:v(p+'Comment')
+  };
+}
+function makeExtra(f, mark, existingId, sep){
+  if (!mark){ alert('Дополнительная маркировка: добавьте хотя бы одну часть маркировки.'); return false; }
+  if (!extraKeyOf(f)){
+    alert('Дополнительная маркировка: укажите категорию, производителя или модель — по ним создаётся лист-шаблон.');
+    return false;
+  }
+  const prev=existingId?extras.find(x=>String(x.id)===String(existingId)):null;
+  return {
+    id: f.code || existingId || uid(),
+    kind:'extra',
+    date: prev?(prev.date||nowStr()):nowStr(),
+    category:f.category||'', manufacturer:f.manufacturer||'', model:f.model||'',
+    marking:mark, marking1c:f.marking1c||'', sep:sep||'-',
+    project:f.project||'', status:f.status||'', link:f.link||'', comment:f.comment||'',
+    scheme:null, schemeType:0, schemeText:'', basedOn:''
+  };
+}
+function collectExtraFromAdd(){
+  useParts('add');
+  const f=extraFieldsOf('#eAdd');
+  const mark=assembleRows();
+  const rows=rowsWithPart();
+  const sep=rows.length?(rows[0].sep||'-'):'-';
+  useParts('main');
+  const filled=f.category||f.manufacturer||f.model||f.code||f.marking1c||mark;
+  if (!filled) return null;
+  return makeExtra(f, mark, addExtraId, sep);
+}
+function collectExtraFromModal(){
+  useParts('extra');
+  const f=extraFieldsOf('#x');
+  const mark=assembleRows();
+  const rows=rowsWithPart();
+  const sep=rows.length?(rows[0].sep||'-'):'-';
+  useParts('main');
+  if (!mark && !(f.category||f.manufacturer||f.model||f.code||f.marking1c)) return null;
+  return makeExtra(f, mark, xEditId, sep);
+}
+function extraLabel(x){
+  return [x&&x.category, x&&x.manufacturer, x&&x.model].filter(Boolean).join(' ') ||
+    (x&&x.id) || '';
+}
+// Категория/производитель/модель доп. маркировки задают её лист-шаблон.
+function onAddKeyChange(){
+  useParts('add');
+  const key=extraKeyOf({category:$('#eAddCategory').value, manufacturer:$('#eAddManufacturer').value,
+                        model:$('#eAddModel').value});
+  if (key===tplKey){ renderTemplate(); useParts('main'); return; }
+  tplKey=key;
+  editRows=rowsFromTemplate(key,'');
+  normalizeTail();
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+  refreshAddTotal();
+}
+function onXKeyChange(){
+  useParts('extra');
+  const key=extraKeyOf({category:$('#xCategory').value, manufacturer:$('#xManufacturer').value,
+                        model:$('#xModel').value});
+  if (key===tplKey){ renderTemplate(); useParts('main'); return; }
+  tplKey=key;
+  editRows=rowsFromTemplate(key,'');
+  normalizeTail();
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+}
+// Выбор ранее сохранённой доп. маркировки: поля и лист подставляются как есть.
+function openAddPick(){
+  const box=$('#addMarkPick'); if (!box) return;
+  if (!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+  $$('.part-pick').forEach(b=>{ if (b!==box) b.classList.add('hidden'); });
+  if (!extras.length){
+    box.innerHTML='<div class="p-empty">Сохранённых доп. маркировок пока нет — введите первую в полях ниже.</div>';
+    box.classList.remove('hidden');
+    return;
+  }
+  box.innerHTML='<div class="pp-head">Сохранённые доп. маркировки</div>'
+    + extras.slice().sort((a,b)=>cmpText(extraLabel(a),extraLabel(b))).map(x=>{
+        const meta=[x.marking||'', x.id].filter(Boolean).join(' · ');
+        return `<button type="button" class="p-opt ap-opt" data-id="${esc(x.id)}"><b>${esc(extraLabel(x)||x.id)}</b><span>${esc(meta)}</span></button>`;
+      }).join('');
+  box.classList.remove('hidden');
+  box.scrollTop=0;
+}
+function syncXStatusDot(){
+  const sel=$('#xStatus'), dot=$('#xStatusDot');
+  if (!sel || !dot) return;
+  const col=statusColor(sel.value);
+  dot.style.background=col;
+  dot.style.visibility=col?'visible':'hidden';
+  dot.setAttribute('data-tip', col?'Статус: '+sel.value:'');
+}
+function openExtra(c, mode){
+  useParts('extra');
+  fillEditDatalists();
+  xEditId=(mode==='edit' && c)?String(c.id):null;
+  $('#extraTitle').textContent=xEditId?('Дополнительная маркировка: '+xEditId):'Новая дополнительная маркировка';
+  $('#xCategory').value=c?c.category||'':'';
+  $('#xManufacturer').value=c?c.manufacturer||'':'';
+  $('#xModel').value=c?c.model||'':'';
+  $('#xCode').value=c?String(c.id||''):'';
+  $('#xProject').value=c?c.project||'':'';
+  $('#xLink').value=c?c.link||'':'';
+  $('#xMarking1c').value=c?c.marking1c||'':'';
+  $('#xComment').value=c?c.comment||'':'';
+  $('#xStatus').innerHTML=statusSelectHTML(c?c.status||'':'');
+  syncXStatusDot();
+  tplKey=c?extraKeyOf(c):'';
+  editRows=c?rowsFromTemplate(tplKey, c.marking||''):[blankRow()];
+  if (c) normalizeTail();
+  P.warn='';
+  renderTemplate();
+  renderRows();
+  useParts('main');
+  $('#extraModal').classList.remove('hidden');
+}
+async function saveExtraCard(){
+  const ex=collectExtraFromModal(); if (!ex) return;
+  const rows=snapshotRows(PCTX.extra.rows), key=PCTX.extra.key;
+  const hadSheet=!!(modelRowsFor(key)||[]).length;
+  persistExtra(ex, xEditId);
+  $('#extraModal').classList.add('hidden');
+  pushTemplateChanges(rows, key, hadSheet).then(ok=>{
+    if (!ok) setBanner('Части доп. маркировки не записались в лист «'+key+'». Проверьте, что развёрнута новая версия скрипта Код.gs.','warn');
+  });
 }
 // При открытии редактора: свой черновик подставляется сам, чужой — предлагается.
 function applyDraftOnOpen(){
@@ -1494,8 +1930,10 @@ function applyDraftOnOpen(){
 
 function fillEditDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
-  $('#dlManufacturers').innerHTML=opts(cards.map(c=>c.manufacturer));
-  $('#dlModels').innerHTML=opts(cards.map(c=>c.model));
+  const all=cards.concat(extras);
+  $('#dlCategories').innerHTML=opts(all.map(c=>c.category));
+  $('#dlManufacturers').innerHTML=opts(all.map(c=>c.manufacturer));
+  $('#dlModels').innerHTML=opts(all.map(c=>c.model));
   $('#dlProjects').innerHTML=opts(cards.flatMap(projectList));
 }
 function updateEditDatalists(){ fillEditDatalists(); }
@@ -1667,19 +2105,22 @@ function rowsFromTemplate(key, marking){
   return [blankRow()];
 }
 function renderTemplate(){
-  const st=$('#tplStatus');
+  const st=$(P.status);
+  if (!st) return;
   const hasTpl=tplGroups.length>0;
   if (tplKey){
     st.className=hasTpl?'hint':'tpl-warn';
     st.textContent=hasTpl
       ? 'Лист «'+tplKey+'» · позиций '+tplGroups.length+'. Выберите значение из списка или впишите новое — оно добавится в лист при сохранении.'
-      : 'Листа «'+tplKey+'» пока нет — он создастся при сохранении карточки.';
-    if (hasTpl && tplWarn){ st.className='tpl-warn'; st.textContent=tplWarn+' '+st.textContent; }
+      : 'Листа «'+tplKey+'» пока нет — он создастся при сохранении.';
+    if (hasTpl && P.warn){ st.className='tpl-warn'; st.textContent=P.warn+' '+st.textContent; }
   } else {
     st.className='hint';
-    st.textContent='Укажите производителя и модель — подставится лист-шаблон.';
+    st.textContent = P===PCTX.main
+      ? 'Укажите производителя и модель — подставится лист-шаблон.'
+      : 'Укажите категорию, производителя или модель — подставится лист-шаблон.';
   }
-  const link=$('#tplSheetLink');
+  const link=$(P.link);
   if (link){
     const href=hasTpl?templateSheetHref(tplKey):'';
     link.classList.toggle('hidden', !href);
@@ -1687,7 +2128,8 @@ function renderTemplate(){
   }
 }
 function renderRows(){
-  const wrap=$('#tplRows');
+  const wrap=$(P.box);
+  if (!wrap) return;
   wrap.innerHTML=editRows.map((r,i)=>{
     const op=i>0?rowOpen(i):'', cl=rowClose(i);
     return `<div class="part-row" data-ri="${i}">
@@ -1719,8 +2161,8 @@ function renderRows(){
   scheduleDraft();
 }
 function rowsWithPart(){ return editRows.filter(r=>(r.part||'').trim()); }
-function assembleRows(){
-  const seq=rowsWithPart();
+function assembleList(rows){
+  const seq=(rows||[]).filter(r=>(r.part||'').trim());
   let out='';
   seq.forEach((r,i)=>{
     out+=(r.part||'').trim();
@@ -1730,6 +2172,7 @@ function assembleRows(){
   });
   return out;
 }
+function assembleRows(){ return assembleList(P.rows); }
 function refreshPreview(){
   const seq=rowsWithPart();
   let html='';
@@ -1738,8 +2181,18 @@ function refreshPreview(){
     if (k<seq.length-1) html+=esc(r.sep||'');
     else html+=esc(closeBrackets(r.sep));
   });
-  $('#ePreview').innerHTML=html||'<i>пусто</i>';
-  renderDupNote();
+  const prev=$(P.preview);
+  if (prev) prev.innerHTML=html||'<i>пусто</i>';
+  if (P===PCTX.main) renderDupNote();
+  refreshAddTotal();
+}
+function refreshAddTotal(){
+  const el=$('#addTotal'); if (!el) return;
+  const ex=assembleList(PCTX.add.rows);
+  const on=$('#eAddToName') && $('#eAddToName').checked;
+  if (!on || !ex){ el.textContent=''; return; }
+  const main=assembleList(PCTX.main.rows);
+  el.textContent='Общее наименование: '+(main?main+', ':'')+ex;
 }
 // Такая маркировка уже есть в другой карточке — показываем, куда перейти.
 function markingDup(mark){
@@ -1757,6 +2210,7 @@ function renderDupNote(){
 }
 function rowInput(e){
   const row=e.target.closest('.part-row'); if(!row) return;
+  partsCtxOf(e.target);
   const i=+row.dataset.ri, r=editRows[i]; if(!r) return;
   const t=e.target;
   if (t.classList.contains('p-part')){
@@ -1798,10 +2252,11 @@ function partVariantsFor(r){
   return g?g.variants:[];
 }
 function closePartMenus(except){
-  $$('#tplRows .p-menu').forEach(m=>{ if (m!==except) m.classList.add('hidden'); });
+  $$('#editModal .p-menu, #extraModal .p-menu').forEach(m=>{ if (m!==except) m.classList.add('hidden'); });
 }
 function openPartMenu(input, showAll){
   const row=input.closest('.part-row'); if (!row) return;
+  partsCtxOf(input);
   const i=+row.dataset.ri, r=editRows[i], menu=row.querySelector('.p-menu');
   if (!r || !menu) return;
   closePartMenus(menu);
@@ -1827,12 +2282,14 @@ function openPartMenu(input, showAll){
   menu.scrollTop=0;
 }
 function togglePartMenu(input){
+  partsCtxOf(input);
   const menu=input.closest('.part-row').querySelector('.p-menu');
   if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
   else openPartMenu(input, true);
 }
 function pickPart(btn){
   const row=btn.closest('.part-row'); if (!row) return;
+  partsCtxOf(btn);
   const i=+row.dataset.ri, r=editRows[i]; if (!r) return;
   // вариант ищем не только по значению, но и по разделителю: у «К» их в шаблоне два
   const v=(btn.dataset.sep===undefined
@@ -1846,6 +2303,7 @@ function pickPart(btn){
 }
 function menuKey(e){
   const menu=e.target.closest('.p-menu'); if (!menu) return;
+  partsCtxOf(e.target);
   const opts=[...menu.querySelectorAll('.p-opt')];
   const cur=opts.indexOf(document.activeElement);
   if (e.key==='ArrowDown'){ e.preventDefault(); (opts[cur+1]||opts[0]||{}).focus&&(opts[cur+1]||opts[0]).focus(); }
@@ -1856,10 +2314,27 @@ function menuKey(e){
     if (row){ const inp=row.querySelector('.p-part'); if (inp) inp.focus(); }
   }
 }
+function partsKeydown(e){
+  if (e.target.classList.contains('p-part')){
+    if (e.key==='ArrowDown'){
+      e.preventDefault();
+      const menu=e.target.closest('.part-row').querySelector('.p-menu');
+      openPartMenu(e.target, true);
+      const first=menu?menu.querySelector('.p-opt'):null;
+      if (first) first.focus();
+    } else if (e.key==='Escape'){
+      const menu=e.target.closest('.part-row').querySelector('.p-menu');
+      if (menu) menu.classList.add('hidden');
+    }
+    return;
+  }
+  menuKey(e);
+}
 // ===== Перетаскивание строк за ручку (ghost + плавный сдвиг) =====
 let pDrag=null;
 function relabelRows(){
-  $$('#tplRows .part-row').forEach((el,i)=>{ const n=el.querySelector('.idx'); if (n) n.textContent=i+1; });
+  const box=$(P.box); if (!box) return;
+  box.querySelectorAll('.part-row').forEach((el,i)=>{ const n=el.querySelector('.idx'); if (n) n.textContent=i+1; });
 }
 function ghostMove(x,y){
   if (!pDrag || !pDrag.clone) return;
@@ -1897,14 +2372,14 @@ function beginRowDrag(){
   hideTip();
 }
 function dragAutoScroll(y){
-  const host=document.getElementById('editModal');
+  const host=(pDrag && pDrag.host) || document.getElementById('editModal');
   if (!host) return;
   const r=host.getBoundingClientRect(), edge=52;
   if (y<r.top+edge) host.scrollTop-=Math.ceil((r.top+edge-y)/2);
   else if (y>r.bottom-edge) host.scrollTop+=Math.ceil((y-(r.bottom-edge))/2);
 }
 function rowTargetAt(y){
-  const wrap=$('#tplRows');
+  const wrap=$(P.box);
   const rows=[...wrap.querySelectorAll('.part-row')].filter(el=>el!==pDrag.row);
   for (const el of rows){
     const r=el.getBoundingClientRect();
@@ -1920,7 +2395,7 @@ function rowTargetAt(y){
 function rowMoveTo(y){
   if (!pDrag || !pDrag.clone) return;
   const t=rowTargetAt(y); if (!t) return;
-  const wrap=$('#tplRows'), row=pDrag.row;
+  const wrap=$(P.box), row=pDrag.row;
   const ref=t.after?t.el.nextElementSibling:t.el;
   if (ref===row || row.nextElementSibling===ref) return;
   flipRows(wrap, row, ()=>wrap.insertBefore(row, ref));
@@ -1933,9 +2408,11 @@ function partsPointerDown(e){
   const row=grip.closest('.part-row');
   if (!row) return;
   e.preventDefault();
+  partsCtxOf(e.target);
   closePartMenus();
   const r=row.getBoundingClientRect();
-  pDrag={row, x0:e.clientX, y0:e.clientY, offX:e.clientX-r.left, offY:e.clientY-r.top, clone:null};
+  pDrag={row, x0:e.clientX, y0:e.clientY, offX:e.clientX-r.left, offY:e.clientY-r.top,
+         clone:null, host:row.closest('.modal')};
   window.addEventListener('pointermove', partsPointerMove);
   window.addEventListener('pointerup', partsPointerEnd);
   window.addEventListener('pointercancel', partsPointerEnd);
@@ -1966,7 +2443,7 @@ function partsPointerEnd(){
     clone.style.opacity='0';
     setTimeout(()=>clone.remove(), 220);
   }
-  const wrap=$('#tplRows');
+  const wrap=$(P.box);
   const prevLast=rowsWithPart().slice(-1)[0];
   editRows=[...wrap.querySelectorAll('.part-row')].map(el=>el._row).filter(Boolean);
   normalizeTail(prevLast);
@@ -1977,6 +2454,7 @@ function partsPointerEnd(){
 }
 function rowClick(e){
   const row=e.target.closest('.part-row'); if (!row) return;
+  partsCtxOf(e.target);
   const i=+row.dataset.ri;
   const brk=e.target.closest('.p-brk');
   if (brk){
@@ -2043,21 +2521,24 @@ function addRow(){
 }
 // ================= «Добавить имеющуюся часть» =================
 // Части, которые уже есть в листе-шаблоне и ещё не стоят в маркировке.
-let pickList=[];
+let pickList=[], pickFrom=null;
 function openPartPick(){
-  const box=$('#partPick'); if (!box) return;
+  const box=$(P.pick); if (!box) return;
   if (!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+  $$('.part-pick').forEach(b=>{ if (b!==box) b.classList.add('hidden'); });
   if (!tplGroups.length){
     box.innerHTML='<div class="p-empty">'+(tplKey
       ? 'Лист «'+esc(tplKey)+'» не найден — имеющихся частей нет.'
-      : 'Укажите производителя и модель — части берутся из листа-шаблона.')+'</div>';
+      : (P===PCTX.main
+          ? 'Укажите производителя и модель — части берутся из листа-шаблона.'
+          : 'Укажите категорию, производителя или модель — части берутся из листа-шаблона.'))+'</div>';
     box.classList.remove('hidden');
     return;
   }
   // позиция, которая уже есть в маркировке, не предлагается: значение меняют в самой строке,
   // иначе в маркировке окажутся две части на одну позицию
   const usedPos=new Set(rowsWithPart().map(r=>r.pos).filter(p=>p!=null&&p!==undefined));
-  pickList=[];
+  pickList=[]; pickFrom=P;
   let html='';
   tplGroups.forEach(g=>{
     if (usedPos.has(g.pos)) return;
@@ -2098,6 +2579,7 @@ function addExistingPart(v){
   renderRows();
 }
 function openEditor(marking){
+  useParts('main');
   tplKey=currentModelKey();
   const rows=modelRowsFor(tplKey);
   tplGroups=rows&&rows.length?groupModelRows(rows):[];
@@ -2106,11 +2588,12 @@ function openEditor(marking){
   editRows=rowsFromTemplate(tplKey, m);
   normalizeTail();
   const hasPrefix=!!(m && tplGroups.length && !parseByGroups(m, tplGroups) && splitPrefix(m, tplGroups));
-  tplWarn=parsedOk?'':(hasPrefix?'Начало маркировки не из шаблона — при сохранении станет новой позицией листа.':'Маркировка не совпала с шаблоном — проверьте значения частей.');
+  P.warn=parsedOk?'':(hasPrefix?'Начало маркировки не из шаблона — при сохранении станет новой позицией листа.':'Маркировка не совпала с шаблоном — проверьте значения частей.');
   renderTemplate();
   renderRows();
 }
 function onTemplateKeyChange(){
+  useParts('main');
   fillEditDatalists();
   const key=currentModelKey();
   if (key===tplKey) return;
@@ -2231,7 +2714,8 @@ async function pushTemplateChanges(rows, key, hadSheet){
 }
 
 function openEdit(src, mode){
-  editId=null; editBaseOn='';
+  useParts('main');
+  editId=null; editBaseOn=''; addExtraId='';
   let base={category:'',manufacturer:'',model:'',sep:'-',marking:'',marking1c:'',project:'',status:'',link:'',comment:'',scheme:null,schemeText:'',basedOn:'',date:''};
   $('#editTitle').textContent='Новая маркировка';
   if (mode==='edit' && src){
@@ -2253,6 +2737,7 @@ function openEdit(src, mode){
   $('#eCode').value = (mode==='edit' && editId) ? editId : '';
   fillEditDatalists();
   openEditor(base.marking||'');
+  fillAddBlock(base.extraId||'', base.extraToName);
   editOrigMarking=String(base.marking||'').trim();
   editOrig=JSON.stringify(editRows);
   tplParsedOk=!(editOrigMarking && tplGroups.length && !parseByGroups(editOrigMarking, tplGroups));
@@ -2264,6 +2749,7 @@ function openEdit(src, mode){
   renderDraftInfo();
 }
 function collectCard(){
+  useParts('main');
   // если маркировка не разложилась по шаблону и её не трогали — сохраняем как есть,
   // чтобы подстановка значений по умолчанию её не испортила
   let marking=assembleRows();
@@ -2286,6 +2772,8 @@ function collectCard(){
     status: $('#eStatus').value,
     link: $('#eLink').value.trim(),
     comment: $('#eComment').value.trim(),
+    extraId: addExtraId||'',
+    extraToName: !!(addExtraId && $('#eAddToName').checked),
     scheme: draftScheme, schemeType: draftScheme?draftScheme.type:0,
     schemeText: draftSchemeText, basedOn: editBaseOn
   };
@@ -2298,17 +2786,39 @@ async function saveCard(){
   const rows=JSON.parse(JSON.stringify(editRows));
   const key=tplKey, draftKey=draftKeyNow();
   const hadSheet=!!(modelRowsFor(key)||[]).length;
+  const ex=collectExtraFromAdd();
+  if (ex===false) return;
+  const exRows=ex?snapshotRows(PCTX.add.rows):null;
+  const exKey=ex?PCTX.add.key:'';
+  const exHad=ex?!!(modelRowsFor(exKey)||[]).length:false;
+  if (ex){
+    // проект и статус у доп. маркировки общие с карточкой
+    ex.project=card.project;
+    ex.status=card.status;
+    card.extraId=ex.id;
+    card.extraToName=!!$('#eAddToName').checked;
+  } else {
+    // ссылку не теряем, если запись просто ещё не загрузилась; кнопка «убрать» её снимает
+    card.extraId=addExtraId||'';
+    card.extraToName=!!(addExtraId && $('#eAddToName').checked);
+  }
+  if (ex) persistExtra(ex, addExtraId);
   await persistCard(card, editId);
-  // черновик снимаем только когда части реально легли на лист модели:
+  // черновик снимаем только когда части реально легли на листы моделей:
   // пока лист не создан, значения остаются в буфере браузера
   draftSuspended=false;
   writeDraft();
   draftSuspended=true;
   $('#editModal').classList.add('hidden');
-  pushTemplateChanges(rows, key, hadSheet).then(ok=>{
-    if (ok){ dropDraft(draftKey); return; }
+  (async()=>{
+    let fail='';
+    if (ex && !(await pushTemplateChanges(exRows, exKey, exHad))) fail=exKey;
+    if (!(await pushTemplateChanges(rows, key, hadSheet))) fail=fail||key;
+    return fail;
+  })().then(fail=>{
+    if (!fail){ dropDraft(draftKey); return; }
     draftSuspended=false;
-    setBanner('Значения сохранены в буфере браузера: лист «'+key+'» ещё не создан в Google. '
+    setBanner('Значения сохранены в буфере браузера: лист «'+fail+'» ещё не создан в Google. '
       +'Откройте карточку позже — введённое подставится само, заново набирать не нужно.','warn');
   });
 }
@@ -2684,9 +3194,10 @@ function schemeToSVG(s, card){
 // ================= Справочники =================
 function fillDatalists(){
   const opts=arr=>[...new Set(arr.filter(Boolean))].sort(cmpText).map(v=>`<option value="${esc(v)}">`).join('');
-  $('#dlCategories').innerHTML=opts(cards.map(c=>c.category));
-  $('#dlManufacturers').innerHTML=opts(cards.map(c=>c.manufacturer));
-  $('#dlModels').innerHTML=opts(cards.map(c=>c.model));
+  const all=cards.concat(extras);
+  $('#dlCategories').innerHTML=opts(all.map(c=>c.category));
+  $('#dlManufacturers').innerHTML=opts(all.map(c=>c.manufacturer));
+  $('#dlModels').innerHTML=opts(all.map(c=>c.model));
   $('#dlCables').innerHTML=opts(cards.flatMap(c=>(c.scheme&&c.scheme.cables)||[]).map(cb=>cb.mark));
   $('#dlWires').innerHTML=opts(WIRE_COLORS.map(([v])=>v));
 }
@@ -2694,12 +3205,17 @@ function fillDatalists(){
 // ================= Экспорт CSV =================
 function exportCSV(){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Проект','Статус','Ссылка','Маркировка','Части маркировки','Схема','Комментарий'].join(';')];
-  cards.forEach(c=>lines.push([
-    c.id, c.date, c.category, c.manufacturer, c.model, c.project||'', c.status||'', c.link||'', c.marking||'',
-    (cardParts(c)||[]).map(p=>[p.part,p.desc||'',charUnit(p)].join(' :: ')).join(' | '),
-    c.schemeText||'', c.comment
-  ].map(q).join(';')));
+  const lines=[['Код 1С','Дата','Категория','Производитель','Модель','Проект','Статус','Ссылка','Маркировка','Части маркировки','Схема','Комментарий',
+    'Доп. код 1С','Доп. маркировка','Доп. в общем наименовании'].join(';')];
+  cards.forEach(c=>{
+    const ex=extraOf(c.extraId);
+    lines.push([
+      c.id, c.date, c.category, c.manufacturer, c.model, c.project||'', c.status||'', c.link||'', fullMarking(c),
+      (cardParts(c)||[]).map(p=>[p.part,p.desc||'',charUnit(p)].join(' :: ')).join(' | '),
+      c.schemeText||'', c.comment,
+      ex?ex.id:'', ex?ex.marking||'':'', ex?(c.extraToName?'да':'нет'):''
+    ].map(q).join(';'));
+  });
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\uFEFF'+lines.join('\r\n')], {type:'text/csv;charset=utf-8'}));
   a.download='markings.csv'; a.click();
@@ -2709,8 +3225,8 @@ function exportCSV(){
 function init(){
   $$('[data-icon]').forEach(el=>el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
 
-  on('#btnAdd','click',()=>openEdit(null,'new'));
-  on('#btnAddEmpty','click',()=>openEdit(null,'new'));
+  on('#btnAdd','click',()=>{ if (currentTab==='extra') openExtra(null,'new'); else openEdit(null,'new'); });
+  on('#btnAddEmpty','click',()=>{ if (currentTab==='extra') openExtra(null,'new'); else openEdit(null,'new'); });
   on('#btnRefresh','click',loadCards);
   on('#btnExport','click',exportCSV);
   on('#btnSaveCard','click',saveCard);
@@ -2771,14 +3287,25 @@ function init(){
     }
   });
 
-  on('#btnAddPart','click',addRow);
-  on('#btnAddExisting','click',openPartPick);
-  on('#partPick','click',e=>{
-    const b=e.target.closest('.pp-opt'); if (!b) return;
-    const v=pickList[+b.dataset.i];
-    $('#partPick').classList.add('hidden');
-    if (v) addExistingPart(v);
+  on('#btnAddPart','click',()=>{ useParts('main'); addRow(); });
+  on('#btnAddExisting','click',()=>{ useParts('main'); openPartPick(); });
+  on('#btnAddPartAdd','click',()=>{ useParts('add'); addRow(); });
+  on('#btnAddExistingAdd','click',()=>{ useParts('add'); openPartPick(); });
+  on('#btnAddPartX','click',()=>{ useParts('extra'); addRow(); });
+  on('#btnAddExistingX','click',()=>{ useParts('extra'); openPartPick(); });
+  on('#btnAddChoose','click',openAddPick);
+  on('#btnAddClear','click',clearAddBlock);
+  on('#addMarkPick','click',e=>{
+    const b=e.target.closest('.ap-opt'); if (!b) return;
+    const ex=extraOf(b.dataset.id);
+    $('#addMarkPick').classList.add('hidden');
+    if (ex) fillAddBlock(ex.id, $('#eAddToName').checked);
   });
+  on('#eAddToName','change',refreshAddTotal);
+  ['#eAddCategory','#eAddManufacturer','#eAddModel'].forEach(id=>on(id,'input',onAddKeyChange));
+  ['#xCategory','#xManufacturer','#xModel'].forEach(id=>on(id,'input',onXKeyChange));
+  on('#xStatus','change',syncXStatusDot);
+  on('#btnSaveExtra','click',saveExtraCard);
   on('#dupNote','click',e=>{
     const b=e.target.closest('#btnOpenDup'); if (!b) return;
     const id=b.dataset.id;
@@ -2802,29 +3329,24 @@ function init(){
   });
   window.addEventListener('beforeunload', writeDraft);
   document.addEventListener('visibilitychange', ()=>{ if (document.hidden) writeDraft(); });
-  on('#tplRows','input',rowInput);
-  on('#tplRows','change',rowInput);
-  on('#tplRows','click',rowClick);
-  on('#tplRows','pointerdown',partsPointerDown);
-  on('#tplRows','keydown',e=>{
-    if (e.target.classList.contains('p-part')){
-      if (e.key==='ArrowDown'){
-        e.preventDefault();
-        const menu=e.target.closest('.part-row').querySelector('.p-menu');
-        openPartMenu(e.target, true);
-        const first=menu?menu.querySelector('.p-opt'):null;
-        if (first) first.focus();
-      } else if (e.key==='Escape'){
-        const menu=e.target.closest('.part-row').querySelector('.p-menu');
-        if (menu) menu.classList.add('hidden');
-      }
-      return;
-    }
-    menuKey(e);
+  ['#tplRows','#addRows','#extraRows'].forEach(sel=>{
+    on(sel,'input',rowInput);
+    on(sel,'change',rowInput);
+    on(sel,'click',rowClick);
+    on(sel,'pointerdown',partsPointerDown);
+    on(sel,'keydown',partsKeydown);
   });
   document.addEventListener('click', e=>{
+    const opt=e.target.closest('.part-pick .pp-opt');
+    if (opt){
+      const v=pickList[+opt.dataset.i];
+      $$('.part-pick').forEach(b=>b.classList.add('hidden'));
+      if (v && pickFrom){ P=pickFrom; addExistingPart(v); }
+      return;
+    }
     if (!e.target.closest('.p-pick')) closePartMenus();
-    if (!e.target.closest('#partPick, #btnAddExisting')) $('#partPick').classList.add('hidden');
+    if (!e.target.closest('.part-pick, #btnAddExisting, #btnAddExistingAdd, #btnAddExistingX, #btnAddChoose'))
+      $$('.part-pick').forEach(b=>b.classList.add('hidden'));
   });
 
   on('#cablesWrap','input',schemeInput);
@@ -2867,7 +3389,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v47</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v48</footer>
 </body>
 </html>
 
