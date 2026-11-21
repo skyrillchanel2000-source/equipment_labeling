@@ -181,6 +181,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 .copy-actions .hint{margin:0}
 .view-meta{font-size:13px;color:var(--mut);margin-bottom:10px}
 .view-marking{font-size:22px;font-weight:600;line-height:2.1}
+.view-submarking{font-size:18px;font-weight:600;line-height:1.9;margin:6px 0;overflow-wrap:anywhere}
 .view-comment{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:14px;margin:10px 0}
 .scheme-actions{display:flex;align-items:center;gap:10px;margin-top:12px}
 .svg-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff;margin:10px 0}
@@ -316,7 +317,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 <div class="modal hidden" id="viewModal">
   <div class="modal-box">
     <div class="modal-head">
-      <h3>Карточка маркировки</h3>
+      <h3 id="viewTitle">Карточка маркировки</h3>
       <div class="toolbar">
         <button class="icon-btn" id="viewEdit" data-icon="edit" data-tip="Редактировать"></button>
         <button class="icon-btn" id="viewClone" data-icon="copy" data-tip="Создать на основе"></button>
@@ -673,8 +674,8 @@ try{
 }catch(e){}
 let filters=filtersByTab.main;
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
-let addExtraId='', xEditId=null;
-let sDraft=null, currentViewId=null, currentTab='main';
+let addExtraId='', xEditId=null, xBasedOn='';
+let sDraft=null, currentViewId=null, currentViewKind='main', currentTab='main';
 const SCHEME_NAMES = ['','только клеммы','клеммы + кабель','кабель + коробка','коробка с кабелем без клемм','только кабель'];
 // Статус карточки — огонёк в правом верхнем углу. Пустое значение = статус не задан.
 const STATUSES = [
@@ -881,29 +882,25 @@ function cardParts(c){
 }
 // Описание для заказчика: первой строкой маркировка, дальше блок «Характеристика:»
 // и по строке на часть — «часть - описание (характеристика)».
-function descText(c){
-  const parts=cardParts(c)||[];
-  const lines=[fullMarking(c)];
-  const pushPart=p=>{
-    let line=String(p.part||'').trim();
-    const desc=String(p.desc||'').trim();
-    const ch=charUnit(p);
-    if (desc) line+=' - '+desc;
-    if (ch) line+=' ('+ch+')';
-    lines.push(line);
-  };
-  if (parts.length){
+// Описание одной таблицы: маркировка, «Характеристика:» и по строке на часть.
+// Основная и дополнительная маркировки копируются отдельно — у каждой своя таблица.
+function partsDescription(marking, parts){
+  const lines=[String(marking||'')];
+  if ((parts||[]).length){
     lines.push('Характеристика:');
-    parts.forEach(pushPart);
-  }
-  const ex=extraOf(c.extraId);
-  const xparts=ex?(cardParts(ex)||[]):[];
-  if (xparts.length){
-    lines.push('Дополнительная маркировка: '+ex.marking);
-    xparts.forEach(pushPart);
+    parts.forEach(p=>{
+      let line=String(p.part||'').trim();
+      const desc=String(p.desc||'').trim();
+      const ch=charUnit(p);
+      if (desc) line+=' - '+desc;
+      if (ch) line+=' ('+ch+')';
+      lines.push(line);
+    });
   }
   return lines.join('\r\n');
 }
+function descText(c){ return partsDescription(c&&c.marking, cardParts(c)||[]); }
+function descExtraText(ex){ return partsDescription(ex&&ex.marking, ex?(cardParts(ex)||[]):[]); }
 
 function migrateScheme(s){
   if (!s || typeof s!=='object') return null;
@@ -937,7 +934,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v50 · доп. маркировка · свои фильтры на вкладках · без дублей · удаление доп. записи · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v51 · доп. маркировка: просмотр и копия · таблица частей в карточке · описание по таблицам · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1400,6 +1397,8 @@ function extraCardHTML(c){
       ${c.link?`<div class="card-link">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(linkHost(linkURL(c.link)))}</a>`:esc(c.link)}</div>`:''}
       ${used?`<div class="card-extra">В карточках: ${used}</div>`:''}
       <div class="card-actions">
+        <button class="icon-btn" data-tip="Открыть карточку доп. маркировки" data-act="x-view" data-id="${esc(c.id)}">${icon('eye')}</button>
+        <button class="icon-btn" data-tip="Создать на основе" data-act="x-clone" data-id="${esc(c.id)}">${icon('copy')}</button>
         <button class="icon-btn" data-tip="Редактировать доп. маркировку" data-act="x-edit" data-id="${esc(c.id)}">${icon('edit')}</button>
         <button class="icon-btn danger" data-tip="Удалить доп. маркировку с листа" data-act="x-del" data-id="${esc(c.id)}">${icon('trash')}</button>
         ${statusDot(c.status)}
@@ -1466,6 +1465,12 @@ function cardAction(e){
   const b=e.target.closest('button[data-act]'); if(!b) return;
   const id=b.dataset.id;
   const act=b.dataset.act;
+  if (act==='x-view'){ openView(id,'extra'); return; }
+  if (act==='x-clone'){
+    const ex=extras.find(x=>String(x.id)===String(id));
+    if (ex) openExtra(ex,'clone');
+    return;
+  }
   if (act==='x-edit'){
     const ex=extras.find(x=>String(x.id)===String(id));
     if (ex) openExtra(ex,'edit');
@@ -1517,42 +1522,70 @@ function flashHint(text){
 function viewHL(i,onOff){
   document.querySelectorAll('#viewBody [data-pidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',onOff));
 }
-function openView(id){
-  const c=findCard(id); if(!c) return;
+function viewPartsTable(parts, xflag){
+  const attr=xflag?'data-xpidx':'data-pidx';
+  return `<table class="parts-table"><thead><tr><th>№</th><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
+    <tbody>${parts.map((p,i)=>`<tr ${attr}="${i}"><td>${i+1}</td><td class="pc${i%8}" ${attr}="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>`;
+}
+function viewXHL(i,onOff){
+  document.querySelectorAll('#viewBody [data-xpidx="'+i+'"]').forEach(el=>el.classList.toggle('hl',onOff));
+}
+function openView(id, kind){
+  const isExtraView = kind==='extra';
+  const c = isExtraView ? extras.find(x=>String(x.id)===String(id)) : findCard(id);
+  if(!c) return;
   currentViewId=id;
-  const inTrash = !cards.find(x=>String(x.id)===String(id));
-  const jc=schemeJumperCount(c.scheme);
+  currentViewKind=isExtraView?'extra':'main';
+  const inTrash = !isExtraView && !cards.find(x=>String(x.id)===String(id));
+  const jc=isExtraView?0:schemeJumperCount(c.scheme);
   const cparts=cardParts(c);
-  const ex=extraOf(c.extraId);
-  const key=modelKeyOf(c), groups=templateGroups(c);
+  const ex=isExtraView?null:extraOf(c.extraId);
+  const key=isExtraView?extraKeyOf(c):modelKeyOf(c), groups=templateGroups(c);
   // «лист не найден» и «лист есть, но маркировка не совпала» — разные причины, и лечатся по-разному
-  const noPartsHint = !key ? 'Укажите производителя и модель — по ним ищется лист-шаблон.'
+  const noPartsHint = !key
+    ? (isExtraView ? 'Укажите категорию, производителя или модель — по ним ищется лист-шаблон.'
+                   : 'Укажите производителя и модель — по ним ищется лист-шаблон.')
     : !groups.length ? `Лист-шаблон «${esc(key)}» не найден или пуст — части не с чем сверять.`
     : `Лист «${esc(key)}» найден (позиций ${groups.length}), но маркировка с ним не совпала: проверьте значения частей и разделители.`;
   const partsHTML = cparts
-    ? `<table class="parts-table"><thead><tr><th>№</th><th>Часть</th><th>Описание</th><th>Характеристика</th></tr></thead>
-        <tbody>${cparts.map((p,i)=>`<tr data-pidx="${i}"><td>${i+1}</td><td class="pc${i%8}" data-pidx="${i}" style="font-weight:600">${esc(p.part)}</td><td>${esc(p.desc||'')}</td><td>${esc(charUnit(p))}</td></tr>`).join('')}</tbody></table>
-        <div class="copy-actions">
+    ? viewPartsTable(cparts, false) +
+        `<div class="copy-actions">
           <button class="btn" id="btnCopyDesc" data-tip="Маркировка, затем «Характеристика:» и по строке на часть — часть, описание и характеристика">Скопировать описание</button>
           <span class="hint">частей: ${cparts.length} · по строке на часть: часть - описание (характеристика)</span>
         </div>
         <div class="hint">Описания частей — с листа-шаблона «${esc(key)}»</div>`
     : `<div class="hint">Маркировка не разобрана по шаблону. ${noPartsHint}</div>`;
-  const mk1c=normText(c.marking1c), mkOwn=normText(fullMarking(c));
+  let extraHTML='';
+  if (ex){
+    const xparts=cardParts(ex);
+    // если доп. маркировка не в общем наименовании — её название ставим перед своей таблицей
+    const xname = c.extraToName ? '' : `<div class="view-submarking">${esc(ex.marking||'')}</div>`;
+    const xtable = xparts
+      ? viewPartsTable(xparts, true) +
+          `<div class="copy-actions">
+            <button class="btn" id="btnCopyDescExtra" data-tip="Маркировка доп. записи, затем «Характеристика:» и по строке на часть">Скопировать описание доп. маркировки</button>
+            <span class="hint">частей: ${xparts.length}</span>
+          </div>`
+      : (ex.marking ? `<div class="hint">Маркировка: ${esc(ex.marking)}</div>` : '');
+    extraHTML = `<h4>Дополнительная маркировка</h4>${xname}${xtable}
+      <div class="hint">${esc(extraLabel(ex))} · код 1С: ${esc(ex.id)}${c.extraToName?' · в общем наименовании':''}</div>`;
+  }
+  const mk1c=normText(c.marking1c), mkOwn=normText(isExtraView?c.marking:fullMarking(c));
   const mkCls = !mk1c ? 'none' : (mk1c===mkOwn ? 'ok' : 'bad');
   const mkTip = !mk1c ? 'Маркировка 1С не заполнена'
     : (mkCls==='ok' ? 'Совпадает с маркировкой, собранной по частям' : 'Не совпадает с маркировкой, собранной по частям');
+  $('#viewTitle').textContent = isExtraView ? 'Дополнительная маркировка' : 'Карточка маркировки';
   $('#viewBody').innerHTML=`
     <div class="view-meta">Код 1С: <b id="viewCode" data-tip="Нажмите, чтобы скопировать код 1С">${esc(c.id)}</b> · ${esc(c.category||'—')}${c.manufacturer?' · '+esc(c.manufacturer):''}${c.model?' · '+esc(c.model):''} · ${esc(c.date||'')}${inTrash?' · <b>в корзине</b>':''}</div>
     <div class="view-meta">Проект: <b>${esc(c.project||'—')}</b>${c.status?` · ${statusDot(c.status, true)}`:''}</div>
     ${c.link?`<div class="view-meta">Ссылка: ${linkURL(c.link)?`<a href="${esc(linkURL(c.link))}" target="_blank" rel="noopener">${esc(c.link)}</a>`:esc(c.link)}</div>`:''}
     <div class="mk1c">Маркировка 1С: <b id="viewMarking1c" class="${mkCls}" data-tip="${esc(mkTip)}. Нажмите, чтобы скопировать">${esc(c.marking1c||'—')}</b></div>
     <div class="view-marking" id="viewMarking" data-tip="Нажмите, чтобы скопировать полную маркировку">${markingHTML(c)}</div>
-    ${ex?`<div class="view-meta">Доп. маркировка: <b>${esc(ex.marking||'')}</b> · ${esc(extraLabel(ex))} · код 1С: ${esc(ex.id)}${c.extraToName?' · в общем наименовании':''}</div>`:''}
     <div class="hint" id="copyHint">${COPY_HINT}</div>
     ${partsHTML}
+    ${extraHTML}
     ${c.comment?`<div class="view-comment"><b>Комментарий:</b> ${esc(c.comment)}</div>`:''}
-    ${c.schemeType && c.scheme ? `
+    ${!isExtraView && c.schemeType && c.scheme ? `
       <div class="scheme-actions">
         <button class="icon-btn" id="btnToggleScheme" data-tip="Показать / скрыть схему">${icon('cpu')}</button>
         <span>Показать схему подключения${jc?' (перемычек: '+jc+')':''}</span>
@@ -1566,7 +1599,7 @@ function openView(id){
     ${c.basedOn?`<div class="based">Создано на основе: ${esc(c.basedOn)}</div>`:''}`;
   $('#viewEdit').style.display  = inTrash ? 'none' : '';
   $('#viewClone').style.display = inTrash ? 'none' : '';
-  const full=fullMarking(c);
+  const full=isExtraView?(c.marking||''):fullMarking(c);
   const vm=$('#viewMarking');
   if (vm) vm.onclick=()=>copyText(full).then(()=>flashHint('Скопировано ✓: '+full)).catch(()=>alert(full));
   const vc=$('#viewCode');
@@ -1587,11 +1620,24 @@ function openView(id){
                   setTimeout(()=>{ dc.textContent='Скопировать описание'; },1600); })
       .catch(()=>alert(txt));
   };
+  const dx=$('#btnCopyDescExtra');
+  if (dx) dx.onclick=()=>{
+    const txt=descExtraText(ex);
+    copyText(txt)
+      .then(()=>{ flashHint('Описание доп. маркировки скопировано ✓ ('+(cardParts(ex)||[]).length+' частей)');
+                  dx.textContent='Скопировано!';
+                  setTimeout(()=>{ dx.textContent='Скопировать описание доп. маркировки'; },1600); })
+      .catch(()=>alert(txt));
+  };
   const cp=$('#btnCopyScheme'); if(cp) cp.onclick=()=>copyText($('#viewSchemeText').textContent)
     .then(()=>{ cp.textContent='Скопировано!'; setTimeout(()=>cp.textContent='Копировать схему',1500); });
   $$('#viewBody [data-pidx]').forEach(el=>{
     el.addEventListener('mouseenter', ()=>viewHL(el.dataset.pidx,true));
     el.addEventListener('mouseleave', ()=>viewHL(el.dataset.pidx,false));
+  });
+  $$('#viewBody [data-xpidx]').forEach(el=>{
+    el.addEventListener('mouseenter', ()=>viewXHL(el.dataset.xpidx,true));
+    el.addEventListener('mouseleave', ()=>viewXHL(el.dataset.xpidx,false));
   });
   $('#viewModal').classList.remove('hidden');
 }
@@ -1835,8 +1881,9 @@ function makeExtra(f, mark, existingId, sep){
     return false;
   }
   let id=f.code || existingId || '';
-  // та же запись уже сохранена (повторное сохранение карточки) — не плодим дубль
-  if (!id){
+  // та же запись уже сохранена (повторное сохранение карточки) — не плодим дубль.
+  // При копировании «создать на основе» запись нужна новая, поэтому поиск отключаем.
+  if (!id && !f.forceNew){
     const twin=extras.find(x=>
       normText(x.category)===normText(f.category) &&
       normText(x.manufacturer)===normText(f.manufacturer) &&
@@ -1853,12 +1900,13 @@ function makeExtra(f, mark, existingId, sep){
     category:f.category||'', manufacturer:f.manufacturer||'', model:f.model||'',
     marking:mark, marking1c:f.marking1c||'', sep:sep||'-',
     project:f.project||'', status:f.status||'', link:f.link||'', comment:f.comment||'',
-    scheme:null, schemeType:0, schemeText:'', basedOn:''
+    scheme:null, schemeType:0, schemeText:'', basedOn:f.basedOn||''
   };
 }
 function collectExtraFromAdd(){
   useParts('add');
   const f=extraFieldsOf('#eAdd');
+  f.basedOn='';
   const mark=assembleRows();
   const rows=rowsWithPart();
   const sep=rows.length?(rows[0].sep||'-'):'-';
@@ -1875,6 +1923,8 @@ function collectExtraFromModal(){
   const sep=rows.length?(rows[0].sep||'-'):'-';
   useParts('main');
   if (!mark && !(f.category||f.manufacturer||f.model||f.code||f.marking1c)) return null;
+  f.basedOn=xBasedOn;
+  f.forceNew=!xEditId && !!xBasedOn;
   return makeExtra(f, mark, xEditId, sep);
 }
 function extraLabel(x){
@@ -1939,11 +1989,14 @@ function openExtra(c, mode){
   useParts('extra');
   fillEditDatalists();
   xEditId=(mode==='edit' && c)?String(c.id):null;
-  $('#extraTitle').textContent=xEditId?('Дополнительная маркировка: '+xEditId):'Новая дополнительная маркировка';
+  xBasedOn=(mode==='clone' && c)?String(c.id):(c?c.basedOn||'':'');
+  $('#extraTitle').textContent=xEditId?('Дополнительная маркировка: '+xEditId)
+    : ((mode==='clone' && c)?('Новая на основе: '+c.id):'Новая дополнительная маркировка');
   $('#xCategory').value=c?c.category||'':'';
   $('#xManufacturer').value=c?c.manufacturer||'':'';
   $('#xModel').value=c?c.model||'':'';
-  $('#xCode').value=c?String(c.id||''):'';
+  // при копировании код 1С не переносим: у новой записи он будет свой
+  $('#xCode').value=(mode==='edit' && xEditId)?String(c.id||''):'';
   $('#xProject').value=c?c.project||'':'';
   $('#xLink').value=c?c.link||'':'';
   $('#xMarking1c').value=c?c.marking1c||'':'';
@@ -3310,8 +3363,26 @@ function init(){
   on('#sBoxMark','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.mark=e.target.value; schemePreviewFill(); });
   on('#sBoxDesc','input',e=>{ if(!sDraft) return; sDraft.box=sDraft.box||{mark:'',desc:''}; sDraft.box.desc=e.target.value; schemePreviewFill(); });
   on('#btnApplyScheme','click',applyScheme);
-  on('#viewEdit','click',()=>{ const c=findCard(currentViewId); $('#viewModal').classList.add('hidden'); if(c) openEdit(c,'edit'); });
-  on('#viewClone','click',()=>{ const c=findCard(currentViewId); $('#viewModal').classList.add('hidden'); if(c) openEdit(c,'clone'); });
+  on('#viewEdit','click',()=>{
+    $('#viewModal').classList.add('hidden');
+    if (currentViewKind==='extra'){
+      const ex=extras.find(x=>String(x.id)===String(currentViewId));
+      if (ex) openExtra(ex,'edit');
+    } else {
+      const c=findCard(currentViewId);
+      if (c) openEdit(c,'edit');
+    }
+  });
+  on('#viewClone','click',()=>{
+    $('#viewModal').classList.add('hidden');
+    if (currentViewKind==='extra'){
+      const ex=extras.find(x=>String(x.id)===String(currentViewId));
+      if (ex) openExtra(ex,'clone');
+    } else {
+      const c=findCard(currentViewId);
+      if (c) openEdit(c,'clone');
+    }
+  });
   on('#cards','click',cardAction);
 
   $$('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -3464,7 +3535,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v50</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v51</footer>
 </body>
 </html>
 
