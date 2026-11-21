@@ -650,15 +650,28 @@ const unitChoices = sel => {
 };
 
 // ================= Состояние =================
-const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1', LS_EXTRAS='mk_extras_v1';
+const LS_CARDS='mk_cards_v1', LS_TRASH='mk_trash_v1', LS_SORT='mk_sort_v1', LS_FILTERS='mk_filters_v1', LS_OPS='mk_ops_v1', LS_MODELS='mk_models_v1', LS_EXTRAS='mk_extras_v1', LS_FILTERS_TABS='mk_filters_v2';
 let cards=[], deletedCards=[], extras=[], models={}, modelGids={}, modelsUrl='';
 let pendingOps=[];
 try{ pendingOps=JSON.parse(localStorage.getItem(LS_OPS)||'[]'); }catch(e){ pendingOps=[]; }
 if (!Array.isArray(pendingOps)) pendingOps=[];
 let sortKey=localStorage.getItem(LS_SORT)||'date-desc';
 if (!['date-desc','date-asc','category','manufacturer','model','marking'].includes(sortKey)) sortKey='date-desc';
-let filters={q:'',cat:'',man:''};
-try{ filters=Object.assign({q:'',cat:'',man:''}, JSON.parse(localStorage.getItem(LS_FILTERS)||'{}')); }catch(e){}
+// У каждой вкладки свои фильтры: поиск, категория и производитель.
+const FILTER_TABS=['main','extra','trash'];
+function blankFilters(){ return {q:'',cat:'',man:''}; }
+let filtersByTab={main:blankFilters(),extra:blankFilters(),trash:blankFilters()};
+try{
+  const saved=JSON.parse(localStorage.getItem(LS_FILTERS_TABS)||'null');
+  if (saved && typeof saved==='object'){
+    FILTER_TABS.forEach(t=>{ if (saved[t]) filtersByTab[t]=Object.assign(blankFilters(), saved[t]); });
+  } else {
+    // старые общие фильтры (mk_filters_v1) достаются основной вкладке
+    const old=JSON.parse(localStorage.getItem(LS_FILTERS)||'{}');
+    if (old && typeof old==='object') filtersByTab.main=Object.assign(blankFilters(), old);
+  }
+}catch(e){}
+let filters=filtersByTab.main;
 let editId=null, editBaseOn='', draftScheme=null, draftSchemeText='';
 let addExtraId='', xEditId=null;
 let sDraft=null, currentViewId=null, currentTab='main';
@@ -924,7 +937,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v49 · дополнительная маркировка · без дублей · удаление доп. записи · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v50 · доп. маркировка · свои фильтры на вкладках · без дублей · удаление доп. записи · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1331,8 +1344,12 @@ function sortCards(list){
   return list.slice().sort(cmp);
 }
 function readFilters(){
-  filters={q:$('#fSearch').value, cat:$('#fCategory').value, man:$('#fManufacturer').value};
-  try{ localStorage.setItem(LS_FILTERS, JSON.stringify(filters)); }catch(e){}
+  const f=filtersByTab[currentTab]||filtersByTab.main;
+  f.q=$('#fSearch').value;
+  f.cat=$('#fCategory').value;
+  f.man=$('#fManufacturer').value;
+  filters=f;
+  try{ localStorage.setItem(LS_FILTERS_TABS, JSON.stringify(filtersByTab)); }catch(e){}
 }
 function buildFilterSelect(sel, arr, value, allLabel){
   if (!sel) return;
@@ -1344,10 +1361,17 @@ function buildFilterSelect(sel, arr, value, allLabel){
   sel.value=value||'';
 }
 function renderFilters(){
-  const cats=[...new Set(cards.map(c=>c.category).filter(Boolean))];
-  const mans=[...new Set(cards.map(c=>c.manufacturer).filter(Boolean))];
+  const src = currentTab==='extra' ? extras : (currentTab==='trash' ? deletedCards : cards);
+  const cats=[...new Set(src.map(c=>c.category).filter(Boolean))];
+  const mans=[...new Set(src.map(c=>c.manufacturer).filter(Boolean))];
   buildFilterSelect($('#fCategory'), cats, filters.cat, 'Все категории');
   buildFilterSelect($('#fManufacturer'), mans, filters.man, 'Все производители');
+}
+// Переключение вкладки: подставляем её сохранённые фильтры в поля.
+function syncFilterControls(){
+  filters=filtersByTab[currentTab]||filtersByTab.main;
+  const s=$('#fSearch'); if (s) s.value=filters.q||'';
+  renderFilters();
 }
 function trashCardHTML(c){
   return `
@@ -1386,9 +1410,8 @@ function renderCards(){
   const isTrash = currentTab==='trash';
   const isExtra = currentTab==='extra';
   const src = isExtra ? extras : (isTrash ? deletedCards : cards);
-  // вкладка доп. маркировки — справочник: фильтры карточек к ней не применяются
-  const q=isExtra?'':filters.q.trim();
-  const cat=isExtra?'':filters.cat, man=isExtra?'':filters.man;
+  const q=filters.q.trim();
+  const cat=filters.cat, man=filters.man;
   const list=sortCards(src.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
@@ -3295,6 +3318,7 @@ function init(){
     currentTab=t.dataset.tab;
     $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
     hideTip();
+    syncFilterControls();
     renderCards();
   }));
 
@@ -3440,7 +3464,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v49</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v50</footer>
 </body>
 </html>
 
