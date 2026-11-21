@@ -286,8 +286,8 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 
 <nav class="tabs">
   <button class="tab active" data-tab="main">Маркировки <span class="cnt" id="mainCnt">0</span></button>
-  <button class="tab" data-tab="trash">Удалённые <span class="cnt" id="trashCnt">0</span></button>
   <button class="tab" data-tab="extra">Дополнительная маркировка <span class="cnt" id="extraCnt">0</span></button>
+  <button class="tab" data-tab="trash">Удалённые <span class="cnt" id="trashCnt">0</span></button>
 </nav>
 
 <section class="filters">
@@ -924,7 +924,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v48 · дополнительная маркировка · проверка дубля · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v49 · дополнительная маркировка · без дублей · удаление доп. записи · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1239,6 +1239,25 @@ async function persistExtra(card, oldId){
   refreshUI();
   queueOp({action:'saveExtra', card, oldId: from}).then(()=>setTimeout(loadCards, 600));
 }
+// Удаление записи доп. маркировки с листа. Связанную запись сначала убирают из карточек.
+async function deleteExtra(id){
+  const ex=extraOf(id); if (!ex) return;
+  const used=cards.concat(deletedCards).filter(c=>String(c.extraId)===String(id));
+  if (used.length){
+    alert('Доп. маркировка используется в карточках: '+used.map(c=>c.id).join(', ')
+      +'.\nСначала нажмите «Убрать» в этих карточках и сохраните их.');
+    return;
+  }
+  if (!confirm('Удалить доп. маркировку «'+extraLabel(ex)+'» ('+(ex.marking||'—')
+      +') с листа «Дополнительная маркировка»?')) return;
+  extras=extras.filter(x=>String(x.id)!==String(id));
+  const before=pendingOps.length;
+  pendingOps=pendingOps.filter(o=>!(String(o.id)===String(id) && o.op==='saveExtra'));
+  if (pendingOps.length!==before) saveOps();
+  localStorage.setItem(LS_EXTRAS, JSON.stringify(extras));
+  refreshUI();
+  queueOp({action:'deleteExtra', id:String(id)}).then(()=>setTimeout(loadCards, 600));
+}
 
 // ================= Список карточек =================
 function markingHTML(card){
@@ -1358,6 +1377,7 @@ function extraCardHTML(c){
       ${used?`<div class="card-extra">В карточках: ${used}</div>`:''}
       <div class="card-actions">
         <button class="icon-btn" data-tip="Редактировать доп. маркировку" data-act="x-edit" data-id="${esc(c.id)}">${icon('edit')}</button>
+        <button class="icon-btn danger" data-tip="Удалить доп. маркировку с листа" data-act="x-del" data-id="${esc(c.id)}">${icon('trash')}</button>
         ${statusDot(c.status)}
       </div>
     </div>`;
@@ -1366,8 +1386,9 @@ function renderCards(){
   const isTrash = currentTab==='trash';
   const isExtra = currentTab==='extra';
   const src = isExtra ? extras : (isTrash ? deletedCards : cards);
-  const q=filters.q.trim();
-  const cat=filters.cat, man=filters.man;
+  // вкладка доп. маркировки — справочник: фильтры карточек к ней не применяются
+  const q=isExtra?'':filters.q.trim();
+  const cat=isExtra?'':filters.cat, man=isExtra?'':filters.man;
   const list=sortCards(src.filter(c=>{
     if (cat && c.category!==cat) return false;
     if (man && c.manufacturer!==man) return false;
@@ -1384,7 +1405,8 @@ function renderCards(){
     }
     return true;
   }));
-  $('#emptyText').textContent = isExtra ? 'Дополнительных маркировок пока нет.'
+  $('#emptyText').textContent = isExtra
+    ? (q ? 'По поиску доп. маркировки не найдены.' : 'Дополнительных маркировок пока нет.')
     : (isTrash ? 'Корзина пуста.' : 'Пока нет ни одной маркировки.');
   $('#btnAddEmpty').classList.toggle('hidden', isTrash);
   $('#btnAddEmpty').textContent = isExtra ? 'Добавить дополнительную маркировку' : 'Добавить первую маркировку';
@@ -1426,6 +1448,7 @@ function cardAction(e){
     if (ex) openExtra(ex,'edit');
     return;
   }
+  if (act==='x-del'){ deleteExtra(id); return; }
   const c=findCard(id); if(!c) return;
   if(act==='view'){ openView(id); }
   else if(act==='clone'){ openEdit(c,'clone'); }
@@ -1788,9 +1811,20 @@ function makeExtra(f, mark, existingId, sep){
     alert('Дополнительная маркировка: укажите категорию, производителя или модель — по ним создаётся лист-шаблон.');
     return false;
   }
-  const prev=existingId?extras.find(x=>String(x.id)===String(existingId)):null;
+  let id=f.code || existingId || '';
+  // та же запись уже сохранена (повторное сохранение карточки) — не плодим дубль
+  if (!id){
+    const twin=extras.find(x=>
+      normText(x.category)===normText(f.category) &&
+      normText(x.manufacturer)===normText(f.manufacturer) &&
+      normText(x.model)===normText(f.model) &&
+      normText(x.marking)===normText(mark));
+    if (twin) id=String(twin.id);
+  }
+  if (!id) id=uid();
+  const prev=id?extras.find(x=>String(x.id)===String(id)):null;
   return {
-    id: f.code || existingId || uid(),
+    id: id,
     kind:'extra',
     date: prev?(prev.date||nowStr()):nowStr(),
     category:f.category||'', manufacturer:f.manufacturer||'', model:f.model||'',
@@ -1902,7 +1936,13 @@ function openExtra(c, mode){
   useParts('main');
   $('#extraModal').classList.remove('hidden');
 }
+let xSaveBusy=false;
 async function saveExtraCard(){
+  if (xSaveBusy) return;
+  xSaveBusy=true;
+  try { await saveExtraInner(); } finally { xSaveBusy=false; }
+}
+async function saveExtraInner(){
   const ex=collectExtraFromModal(); if (!ex) return;
   const rows=snapshotRows(PCTX.extra.rows), key=PCTX.extra.key;
   const hadSheet=!!(modelRowsFor(key)||[]).length;
@@ -2778,7 +2818,14 @@ function collectCard(){
     schemeText: draftSchemeText, basedOn: editBaseOn
   };
 }
+let saveBusy=false;
 async function saveCard(){
+  // двойной клик по «Сохранить» не должен создавать вторую запись доп. маркировки
+  if (saveBusy) return;
+  saveBusy=true;
+  try { await saveCardInner(); } finally { saveBusy=false; }
+}
+async function saveCardInner(){
   const card=collectCard(); if(!card) return;
   const dup=markingDup(card.marking);
   if (dup && !confirm('Маркировка «'+card.marking+'» уже есть в карточке '+dup.id
@@ -2802,7 +2849,11 @@ async function saveCard(){
     card.extraId=addExtraId||'';
     card.extraToName=!!(addExtraId && $('#eAddToName').checked);
   }
-  if (ex) persistExtra(ex, addExtraId);
+  if (ex){
+    persistExtra(ex, addExtraId);
+    // следующее сохранение этой же карточки обновит запись, а не создаст новую
+    addExtraId=String(ex.id);
+  }
   await persistCard(card, editId);
   // черновик снимаем только когда части реально легли на листы моделей:
   // пока лист не создан, значения остаются в буфере браузера
@@ -3389,7 +3440,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v48</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v49</footer>
 </body>
 </html>
 
