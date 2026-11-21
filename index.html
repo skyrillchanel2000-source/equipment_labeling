@@ -131,7 +131,10 @@ body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!i
 .p-opt.cur{background:#eef4ff}
 .p-opt.cur b::after{content:' ✓';color:#1b6b2f}
 .pp-head{padding:6px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);background:#f7f9fc;border-bottom:1px solid #eef2f7}
-.part-pick{max-height:280px}
+/* свой класс, а не .f-menu: closeComboMenus закрывает все .f-menu при клике в окне редактора */
+.part-pick{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:50;max-height:280px;overflow:auto;
+  background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.16)}
+.part-pick.hidden{display:none}
 .p-empty{padding:7px 9px;color:var(--mut);font-size:12px}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
@@ -349,7 +352,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
           <a class="linkbtn hidden" id="tplSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
           <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
           <button class="icon-btn" id="btnAddExisting" data-icon="list" data-tip="Добавить имеющуюся часть — значение из листа-шаблона"></button>
-          <div id="partPick" class="f-menu part-pick hidden"></div>
+          <div id="partPick" class="part-pick hidden"></div>
         </div>
         <div id="tplRows"></div>
         <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
@@ -803,7 +806,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v46 · проверка дубля маркировки · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v47 · проверка дубля маркировки · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -2864,7 +2867,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v46</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v47</footer>
 </body>
 </html>
 
