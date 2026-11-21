@@ -181,7 +181,7 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
 .copy-actions .hint{margin:0}
 .view-meta{font-size:13px;color:var(--mut);margin-bottom:10px}
 .view-marking{font-size:22px;font-weight:600;line-height:2.1}
-.view-submarking{font-size:18px;font-weight:600;line-height:1.9;margin:6px 0;overflow-wrap:anywhere}
+.view-submarking{font-size:18px;font-weight:600;line-height:1.9;margin:6px 0;overflow-wrap:anywhere;cursor:pointer}
 .view-comment{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:14px;margin:10px 0}
 .scheme-actions{display:flex;align-items:center;gap:10px;margin-top:12px}
 .svg-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff;margin:10px 0}
@@ -934,7 +934,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v52 · доп. маркировка по частям в общем наименовании · таблица частей в карточке · описание по таблицам · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v53 · доп. маркировка: части и копирование по клику · таблица частей в карточке · описание по таблицам · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1561,8 +1561,10 @@ function openView(id, kind){
   let extraHTML='';
   if (ex){
     const xparts=cardParts(ex);
-    // если доп. маркировка не в общем наименовании — её название ставим перед своей таблицей
-    const xname = c.extraToName ? '' : `<div class="view-submarking">${esc(ex.marking||'')}</div>`;
+    // если доп. маркировка не в общем наименовании — её название ставим перед своей таблицей,
+    // тоже разобранное по частям; клик копирует её маркировку
+    const xname = c.extraToName ? ''
+      : `<div class="view-submarking" id="viewSubMarking" data-tip="Нажмите, чтобы скопировать маркировку доп. записи">${markingBaseHTML(ex,'data-xpidx')}</div>`;
     const xtable = xparts
       ? viewPartsTable(xparts, true) +
           `<div class="copy-actions">
@@ -1612,6 +1614,12 @@ function openView(id, kind){
     const txt=c.marking1c||'';
     if (!txt) return;
     return copyText(txt).then(()=>flashHint('Маркировка 1С скопирована ✓: '+txt)).catch(()=>alert(txt));
+  };
+  const xm=$('#viewSubMarking');
+  if (xm && ex) xm.onclick=()=>{
+    const txt=ex.marking||'';
+    if (!txt) return;
+    return copyText(txt).then(()=>flashHint('Маркировка доп. записи скопирована ✓: '+txt)).catch(()=>alert(txt));
   };
   const t=$('#btnToggleScheme'); if(t) t.onclick=()=>$('#viewScheme').classList.toggle('hidden');
   const dc=$('#btnCopyDesc');
@@ -3538,7 +3546,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v52</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v53</footer>
 </body>
 </html>
 
