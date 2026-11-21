@@ -98,7 +98,7 @@ legend{font-size:13px;color:var(--mut);padding:0 6px}
 .mk1c b.none{color:var(--mut);background:#f1f3f7;border-radius:6px;padding:1px 6px}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
 #boxFields{grid-template-columns:1fr 2fr;margin-bottom:10px}
-.parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.parts-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;position:relative}
 .part-row{display:grid;grid-template-columns:24px 20px 30px minmax(140px,1fr) 30px minmax(60px,96px) minmax(120px,1fr) 96px 74px 32px;gap:6px;margin-bottom:6px;align-items:center}
 .part-row .idx{color:var(--mut);font-size:12px;text-align:center}
 .part-row input,.part-row select{padding:6px 8px;font-size:13px}
@@ -128,11 +128,19 @@ body.row-sorting,body.row-sorting *{cursor:grabbing!important;user-select:none!i
 .p-opt:hover,.p-opt:focus{background:#eef4ff;outline:none}
 .p-opt b{font-weight:600}
 .p-opt span{display:block;color:var(--mut);font-size:12px}
+.p-opt.cur{background:#eef4ff}
+.p-opt.cur b::after{content:' ✓';color:#1b6b2f}
+.pp-head{padding:6px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);background:#f7f9fc;border-bottom:1px solid #eef2f7}
+.part-pick{max-height:280px}
 .p-empty{padding:7px 9px;color:var(--mut);font-size:12px}
 .linkbtn{background:none;border:none;color:var(--acc);cursor:pointer;padding:0;font:inherit;font-size:13px;text-decoration:underline}
 .linkbtn:hover{color:#1e4fd6}
 .tpl-warn{font-size:13px;color:#b3261e}
 .marking-preview{margin-top:8px;font-size:16px;font-weight:600;line-height:2}
+.dup-note{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:8px 10px;
+  border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;font-size:13px}
+.dup-note.hidden{display:none}
+.dup-note .btn{padding:4px 10px;font-size:12px}
 .scheme-row{display:flex;align-items:center;gap:10px;margin:12px 0}
 .scheme-types{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .scheme-types label{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin:0}
@@ -340,9 +348,12 @@ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:aut
           <span class="hint" id="tplStatus">—</span>
           <a class="linkbtn hidden" id="tplSheetLink" target="_blank" rel="noopener">открыть лист-шаблон</a>
           <button class="icon-btn" id="btnAddPart" data-icon="plus" data-tip="Добавить часть маркировки"></button>
+          <button class="icon-btn" id="btnAddExisting" data-icon="list" data-tip="Добавить имеющуюся часть — значение из листа-шаблона"></button>
+          <div id="partPick" class="f-menu part-pick hidden"></div>
         </div>
         <div id="tplRows"></div>
         <div class="marking-preview">Маркировка: <span id="ePreview"></span></div>
+        <div id="dupNote" class="dup-note hidden"></div>
         <div class="hint">Скобки вокруг значения части — кнопки «(» и «)» в строке; Shift+клик убирает одну скобку, повторный клик добавляет вторую.</div>
       </fieldset>
       <div class="scheme-row">
@@ -526,6 +537,7 @@ const ICONS = {
   up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
   down:'<path d="M12 5v14M19 12l-7 7-7-7"/>',
   grip:'<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>'
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
@@ -547,6 +559,8 @@ const SEP_CHOICES = [['','(нет)'],['-','дефис «-»'],[' ','пробел
   ['_','подчёркивание'],['(','скобка «(»'],[')','скобка «)»']];
 const sepChoices = sel => SEP_CHOICES.map(([v,l]) =>
   `<option value="${esc(v)}"${v===(sel||'')?' selected':''}>${esc(l)}</option>`).join('');
+// Разделитель в подписи списка: без него «К.» и «К» в меню выглядели одинаково.
+const sepLabel = s => { const v=String(s==null?'':s); return v===''?'нет':(v===' '?'пробел':'«'+v+'»'); };
 
 const UNITS = ['','Па','кПа','МПа','бар','мм вод. ст.','%','°C','°','мм','см','дм','м','м²','м³',
   'л/с','м³/ч','В','мВ','А','мА','Вт','кВт','Гц','об/мин','кг','с','ч'];
@@ -789,7 +803,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v45 · копирование описания: маркировка + «Характеристика:» построчно · черновик редактора в браузере · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v46 · проверка дубля маркировки · добавить имеющуюся часть · правка части в шаблоне · карточек: ' + cards.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1722,6 +1736,21 @@ function refreshPreview(){
     else html+=esc(closeBrackets(r.sep));
   });
   $('#ePreview').innerHTML=html||'<i>пусто</i>';
+  renderDupNote();
+}
+// Такая маркировка уже есть в другой карточке — показываем, куда перейти.
+function markingDup(mark){
+  const m=normText(mark); if (!m) return null;
+  return cards.find(c=>String(c.id)!==String(editId) && normText(c.marking)===m) || null;
+}
+function renderDupNote(){
+  const el=$('#dupNote'); if (!el) return;
+  const dup=markingDup(assembleRows());
+  el.classList.toggle('hidden', !dup);
+  el.innerHTML = dup
+    ? `<span>Такая маркировка уже есть: <b>${esc(dup.id)}</b>${dup.model?' · '+esc(dup.model):''}</span>
+       <button type="button" class="btn" id="btnOpenDup" data-id="${esc(dup.id)}">Открыть карточку</button>`
+    : '';
 }
 function rowInput(e){
   const row=e.target.closest('.part-row'); if(!row) return;
@@ -1773,11 +1802,24 @@ function openPartMenu(input, showAll){
   const i=+row.dataset.ri, r=editRows[i], menu=row.querySelector('.p-menu');
   if (!r || !menu) return;
   closePartMenus(menu);
+  const all=partVariantsFor(r);
   const q=showAll?'':normText(input.value).toLowerCase();
-  const list=partVariantsFor(r).filter(v=>!q || v.part.toLowerCase().indexOf(q)>=0);
+  const list=all.filter(v=>!q || v.part.toLowerCase().indexOf(q)>=0);
+  // одно и то же значение с разными разделителями иначе не отличить в списке
+  const cnt={};
+  all.forEach(v=>{ const k=(v.part||'').trim(); cnt[k]=(cnt[k]||0)+1; });
+  const curPart=(r.part||'').trim(), curSep=normSep(r.sep);
   menu.innerHTML=list.length
-    ? list.map(v=>`<button type="button" class="p-opt" data-part="${esc(v.part)}"><b>${esc(v.part)}</b>${v.desc?'<span>'+esc(v.desc)+'</span>':''}</button>`).join('')
-    : '<div class="p-empty">'+(partVariantsFor(r).length?'Таких значений нет — впишите своё':'В шаблоне нет значений — впишите своё')+'</div>';
+    ? list.map(v=>{
+        const k=(v.part||'').trim();
+        const bits=[];
+        if (cnt[k]>1) bits.push('разделитель '+sepLabel(v.sep));
+        if (v.desc) bits.push(v.desc);
+        const cur=(k===curPart && normSep(v.sep)===curSep) ? ' cur' : '';
+        return `<button type="button" class="p-opt${cur}" data-part="${esc(v.part)}" data-sep="${esc(v.sep||'')}"><b>${esc(v.part)}</b>`
+          +(bits.length?'<span>'+esc(bits.join(' · '))+'</span>':'')+'</button>';
+      }).join('')
+    : '<div class="p-empty">'+(all.length?'Таких значений нет — впишите своё':'В шаблоне нет значений — впишите своё')+'</div>';
   menu.classList.remove('hidden');
   menu.scrollTop=0;
 }
@@ -1789,7 +1831,11 @@ function togglePartMenu(input){
 function pickPart(btn){
   const row=btn.closest('.part-row'); if (!row) return;
   const i=+row.dataset.ri, r=editRows[i]; if (!r) return;
-  const v=partVariantsFor(r).find(x=>x.part===btn.dataset.part);
+  // вариант ищем не только по значению, но и по разделителю: у «К» их в шаблоне два
+  const v=(btn.dataset.sep===undefined
+    ? partVariantsFor(r).find(x=>x.part===btn.dataset.part)
+    : partVariantsFor(r).find(x=>x.part===btn.dataset.part && normSep(x.sep)===normSep(btn.dataset.sep)))
+    || partVariantsFor(r).find(x=>x.part===btn.dataset.part);
   if (!v) return;
   r.part=v.part; r.sep=v.sep||''; r.desc=v.desc||''; r.char=v.char||''; r.unit=v.unit||'';
   normalizeTail();
@@ -1992,6 +2038,62 @@ function addRow(){
   editRows.push(r);
   renderRows();
 }
+// ================= «Добавить имеющуюся часть» =================
+// Части, которые уже есть в листе-шаблоне и ещё не стоят в маркировке.
+let pickList=[];
+function openPartPick(){
+  const box=$('#partPick'); if (!box) return;
+  if (!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+  if (!tplGroups.length){
+    box.innerHTML='<div class="p-empty">'+(tplKey
+      ? 'Лист «'+esc(tplKey)+'» не найден — имеющихся частей нет.'
+      : 'Укажите производителя и модель — части берутся из листа-шаблона.')+'</div>';
+    box.classList.remove('hidden');
+    return;
+  }
+  // позиция, которая уже есть в маркировке, не предлагается: значение меняют в самой строке,
+  // иначе в маркировке окажутся две части на одну позицию
+  const usedPos=new Set(rowsWithPart().map(r=>r.pos).filter(p=>p!=null&&p!==undefined));
+  pickList=[];
+  let html='';
+  tplGroups.forEach(g=>{
+    if (usedPos.has(g.pos)) return;
+    const free=g.variants;
+    if (!free.length) return;
+    html+='<div class="pp-head">Позиция '+g.pos+'</div>';
+    free.forEach(v=>{
+      pickList.push({pos:g.pos, part:v.part||'', sep:v.sep||'', desc:v.desc||'', char:v.char||'', unit:v.unit||''});
+      const meta=[v.desc||'', 'разделитель '+sepLabel(v.sep)].filter(Boolean).join(' · ');
+      html+='<button type="button" class="p-opt pp-opt" data-i="'+(pickList.length-1)+'"><b>'+esc(v.part)
+        +'</b><span>'+esc(meta)+'</span></button>';
+    });
+  });
+  box.innerHTML=html||'<div class="p-empty">Все значения листа уже стоят в маркировке.</div>';
+  box.classList.remove('hidden');
+  box.scrollTop=0;
+}
+function addExistingPart(v){
+  const prevLast=rowsWithPart().slice(-1)[0];
+  // в редакторе уже есть пустая строка этой позиции (часть в маркировке отсутствует) —
+  // заполняем её, чтобы не заводить вторую строку на ту же позицию
+  const empty=editRows.find(r=>!(r.part||'').trim() && r.pos!=null && Number(r.pos)===Number(v.pos));
+  if (empty){
+    empty.part=v.part; empty.sep=v.sep; empty.desc=v.desc; empty.char=v.char; empty.unit=v.unit;
+    normalizeTail(prevLast);
+    renderRows();
+    return;
+  }
+  const row={part:v.part, sep:v.sep, desc:v.desc, char:v.char, unit:v.unit, pos:v.pos};
+  // строка встаёт по порядку позиций шаблона, чтобы не перетаскивать её потом
+  let at=editRows.length;
+  for (let i=editRows.length-1;i>=0;i--){
+    const p=editRows[i].pos;
+    if (p!=null && Number(p)<Number(v.pos)){ at=i+1; break; }
+  }
+  editRows.splice(at,0,row);
+  normalizeTail(prevLast);
+  renderRows();
+}
 function openEditor(marking){
   tplKey=currentModelKey();
   const rows=modelRowsFor(tplKey);
@@ -2041,12 +2143,16 @@ function templateJobs(rows, key){
     const isTail=i===seq.length-1;
     const sep=isTail?closeBrackets(r.sep):(r.sep||'');
     const desc=r.desc||'', char=r.char||'', unit=r.unit||'';
-    const same=v=>v.part===part && (isTail?closeBrackets(v.sep)===sep:sepAlias(v.sep)===sepAlias(sep));
+    const sepSame=(a,b)=>isTail?closeBrackets(a)===closeBrackets(b):sepAlias(a)===sepAlias(b);
+    const same=v=>(v.part||'').trim()===part && sepSame(v.sep,sep);
     let idx=-1;
     if (r.pos!=null){
       for (let k=cur;k<groups.length;k++){ if (groups[k].pos===r.pos){ idx=k; break; } }
-      // нумерация могла сдвинуться после вставки — тогда позицию узнаём по значению
-      if (idx<0 && cur<groups.length && groups[cur].variants.some(same)) idx=cur;
+    }
+    // Позицию узнаём и по значению: строка, добавленная кнопкой, своего номера не знает,
+    // а без этого правка заводила бы новую позицию с тем же значением.
+    if (idx<0){
+      for (let k=cur;k<groups.length;k++){ if (groups[k].variants.some(same)){ idx=k; break; } }
     }
     if (idx<0){
       const pos=cur<groups.length?groups[cur].pos
@@ -2061,17 +2167,25 @@ function templateJobs(rows, key){
       return;
     }
     const g=groups[idx];
-    const hit=g.variants.find(same);
+    let hit=g.variants.find(same);
+    if (!hit){
+      // Значение на позиции уже есть — значит меняют описание/характеристику/разделитель.
+      // Правим существующую строку листа, а не заводим дубль.
+      const twins=g.variants.filter(v=>(v.part||'').trim()===part);
+      hit = twins.length===1 ? twins[0]
+        : (twins.find(v=>(v.desc||'')===desc && (v.char||'')===char && (v.unit||'')===unit) || null);
+    }
     if (!hit){
       jobs.push({action:'addVariant', model:key, pos:g.pos, part:part, sep:sep,
                  desc:desc, char:char, unit:unit});
       g.variants.push({part:part, sep:sep, desc:desc, char:char, unit:unit});
     } else if ((hit.desc||'')!==desc || (hit.char||'')!==char || (hit.unit||'')!==unit ||
-               (hit.sep||'')!==sep){
+               !sepSame(hit.sep, sep)){
       jobs.push({action:'updateVariant', model:key, pos:g.pos, part:part, oldSep:hit.sep,
                  sep:sep, desc:desc, char:char, unit:unit});
       hit.sep=sep; hit.desc=desc; hit.char=char; hit.unit=unit;
     }
+    if (r.pos==null) r.pos=g.pos;
     cur=idx+1;
   });
   return jobs;
@@ -2175,6 +2289,9 @@ function collectCard(){
 }
 async function saveCard(){
   const card=collectCard(); if(!card) return;
+  const dup=markingDup(card.marking);
+  if (dup && !confirm('Маркировка «'+card.marking+'» уже есть в карточке '+dup.id
+      +(dup.model?' · '+dup.model:'')+'.\nСохранить ещё одну такую же?')) return;
   const rows=JSON.parse(JSON.stringify(editRows));
   const key=tplKey, draftKey=draftKeyNow();
   const hadSheet=!!(modelRowsFor(key)||[]).length;
@@ -2652,6 +2769,20 @@ function init(){
   });
 
   on('#btnAddPart','click',addRow);
+  on('#btnAddExisting','click',openPartPick);
+  on('#partPick','click',e=>{
+    const b=e.target.closest('.pp-opt'); if (!b) return;
+    const v=pickList[+b.dataset.i];
+    $('#partPick').classList.add('hidden');
+    if (v) addExistingPart(v);
+  });
+  on('#dupNote','click',e=>{
+    const b=e.target.closest('#btnOpenDup'); if (!b) return;
+    const id=b.dataset.id;
+    writeDraft();
+    $('#editModal').classList.add('hidden');
+    openView(id);
+  });
   // Буфер введённых значений: пишем на каждый ввод и при уходе со страницы,
   // чтобы значения пережили перезагрузку и закрытие браузера.
   on('#editModal','input',scheduleDraft);
@@ -2688,7 +2819,10 @@ function init(){
     }
     menuKey(e);
   });
-  document.addEventListener('click', e=>{ if (!e.target.closest('.p-pick')) closePartMenus(); });
+  document.addEventListener('click', e=>{
+    if (!e.target.closest('.p-pick')) closePartMenus();
+    if (!e.target.closest('#partPick, #btnAddExisting')) $('#partPick').classList.add('hidden');
+  });
 
   on('#cablesWrap','input',schemeInput);
   on('#cablesWrap','click',schemeClick);
@@ -2730,7 +2864,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v45</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v46</footer>
 </body>
 </html>
 
