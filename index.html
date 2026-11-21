@@ -934,7 +934,7 @@ function updateCounts(){
 }
 function updateFooter(){
   const bi = document.getElementById('buildInfo');
-  if (bi) bi.textContent = 'v51 · доп. маркировка: просмотр и копия · таблица частей в карточке · описание по таблицам · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
+  if (bi) bi.textContent = 'v52 · доп. маркировка по частям в общем наименовании · таблица частей в карточке · описание по таблицам · карточек: ' + cards.length + ' · доп.: ' + extras.length + ' · в корзине: ' + deletedCards.length;
 }
 // ================= Непротиворечивая синхронизация =================
 // Локальные операции хранятся, пока таблица их не подтвердит, поэтому
@@ -1273,19 +1273,22 @@ async function deleteExtra(id){
 function markingHTML(card){
   const base=markingBaseHTML(card);
   const ex=extraOf(card&&card.extraId);
-  if (ex && card.extraToName && ex.marking && base!=='<i>—</i>'){
-    return base + ', <span class="part pc5" data-tip="Дополнительная маркировка">'+esc(ex.marking)+'</span>';
+  if (ex && ex!==card && card.extraToName && ex.marking && base!=='<i>—</i>'){
+    // доп. маркировка светится своими частями, как в её собственной карточке;
+    // data-xpidx — чтобы наведение в просмотре вело к её таблице, а не к основной
+    return base + ', ' + markingBaseHTML(ex, 'data-xpidx');
   }
   return base;
 }
-function markingBaseHTML(card){
+function markingBaseHTML(card, attr){
+  attr=attr||'data-pidx';
   const parts=cardParts(card);
   if (!parts){
     return card.marking ? `<span class="part" data-tip="Шаблон модели не найден — описания частей недоступны">${esc(card.marking)}</span>` : '<i>—</i>';
   }
   let html='';
   parts.forEach((p,i)=>{
-    html+=`<span class="part pc${i%8}" data-pidx="${i}" data-tip="${esc(partTip(p))}">${esc(p.part)}</span>`;
+    html+=`<span class="part pc${i%8}" ${attr}="${i}" data-tip="${esc(partTip(p))}">${esc(p.part)}</span>`;
     if (i<parts.length-1) html+=esc(p.sep||'');
     else html+=esc(closeBrackets(p.sep));
   });
@@ -3535,7 +3538,7 @@ function init(){
 init();
 window.__appOK = true;
 </script>
-<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v51</footer>
+<footer id="buildInfo" style="text-align:center;color:#68738a;font-size:12px;padding:12px 0">v52</footer>
 </body>
 </html>
 
